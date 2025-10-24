@@ -336,7 +336,7 @@ export default function AdvancedMarkupBuilder({
                   setProps.forEach((prop: any) => {
                     const key = `${setName}.${prop?.name || ""}`;
                     if (key === field.name) {
-                      value = String(prop?.displayValue ?? prop?.value || "");
+                      value = String((prop?.displayValue ?? prop?.value) || "");
                     }
                   });
                 });
