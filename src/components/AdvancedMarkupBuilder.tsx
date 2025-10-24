@@ -2,7 +2,7 @@ import { useRef, useState, useCallback } from "react";
 import * as WorkspaceAPI from "trimble-connect-workspace-api";
 import "./AdvancedMarkupBuilder.css";
 
-const VERSION = "3.0.1"; // Full Assembly Exporter integration
+const VERSION = "3.0.2"; // Tekla attributes fallback + default values
 
 type Language = "et" | "en";
 type Tab = "markup" | "debug";
@@ -171,6 +171,25 @@ function classifyGuid(val: string): "IFC" | "MS" | "UNKNOWN" {
 }
 
 // Assembly Exporter async fallback functions
+
+// Tekla Structures (.trb) fallback - attributes asemel properties
+async function getObjectAttributesFallback(api: any, modelId: string, runtimeIds: number[], addLog?: Function): Promise<any> {
+  try {
+    addLog?.(`Trying getObjectAttributes fallback for Tekla...`, "debug");
+    const attrs = await (api.viewer as any).getObjectAttributes?.(modelId, runtimeIds);
+    if (attrs) {
+      const count = Array.isArray(attrs) ? attrs.length : Object.keys(attrs || {}).length;
+      addLog?.(`✅ Got attributes: ${count} items`, "debug");
+      return attrs;
+    }
+    addLog?.(`getObjectAttributes returned null`, "debug");
+    return null;
+  } catch (err: any) {
+    addLog?.(`getObjectAttributes error: ${err.message}`, "warn");
+    return null;
+  }
+}
+
 async function getPresentationLayerString(api: any, modelId: string, runtimeId: number, addLog?: Function): Promise<string> {
   try {
     const layers = (await api?.viewer?.getObjectLayers?.(modelId, [runtimeId])) ?? (await api?.viewer?.getPresentationLayers?.(modelId, [runtimeId]));
@@ -276,6 +295,8 @@ async function flattenProps(
   api: any,
   addLog?: Function
 ): Promise<Record<string, string>> {
+  addLog?.(`\n🔍 flattenProps START: obj.id=${obj?.id}, has properties=${!!obj?.properties}`, "debug");
+  
   const out: Record<string, string> = {
     GUID: "",
     GUID_IFC: "",
@@ -307,16 +328,17 @@ async function flattenProps(
 
   // Property sets
   if (Array.isArray(obj?.properties)) {
-    addLog?.(`Properties array found: ${obj.properties.length} sets`, "debug");
+    addLog?.(`✅ Properties array found: ${obj.properties.length} sets`, "debug");
     obj.properties.forEach((propSet: any) => {
       const setName = propSet?.name || "Unknown";
       const setProps = propSet?.properties || [];
       if (Array.isArray(setProps)) {
+        addLog?.(`  Set "${setName}": ${setProps.length} properties`, "debug");
         setProps.forEach((prop: any) => {
           const value = (prop?.displayValue ?? prop?.value) || "";
           const name = prop?.name || "Unknown";
           push(setName, name, value);
-          addLog?.(`Found: ${setName}.${name} = ${String(value).substring(0, 50)}`, "debug");
+          addLog?.(`    Found: ${setName}.${name} = ${String(value).substring(0, 40)}`, "debug");
         });
       }
     });
@@ -324,7 +346,7 @@ async function flattenProps(
     addLog?.(`Properties is object (not array): ${Object.keys(obj.properties).length} keys`, "debug");
     Object.entries(obj.properties).forEach(([key, val]) => push("Properties", key, val));
   } else {
-    addLog?.(`⚠️ NO PROPERTIES FOUND in object! obj.properties = ${typeof obj?.properties}`, "warn");
+    addLog?.(`⚠️ NO PROPERTIES! type=${typeof obj?.properties}, value=${obj?.properties}`, "warn");
   }
 
   // Standard fields
@@ -398,6 +420,23 @@ async function flattenProps(
   if (guidIfc) out.GUID_IFC = guidIfc;
   if (guidMs) out.GUID_MS = guidMs;
   if (guidIfc || guidMs) out.GUID = guidIfc || guidMs;
+
+  // UUUS: Fallback vaikimisi väärtused - et markup ikkagi lisataks
+  if (!out.Name || out.Name === "") {
+    out.Name = `(Objekt ${out.ObjectId || "tundmatu"})`;
+    addLog?.(`Fallback Name: ${out.Name}`, "debug");
+  }
+  if (!out.Type || out.Type === "Unknown") {
+    out.Type = out.CommonType || "Tekla Element";
+    addLog?.(`Fallback Type: ${out.Type}`, "debug");
+  }
+  if (!out.GUID && obj?.globalId) {
+    out.GUID = String(obj.globalId);
+    addLog?.(`Fallback GUID: ${out.GUID}`, "debug");
+  }
+
+  const finalKeys = Object.keys(out).filter(k => out[k] && String(out[k]).trim());
+  addLog?.(`flattenProps END: ${finalKeys.length} fields with values: ${finalKeys.slice(0, 8).join(", ")}`, "debug");
 
   return out;
 }
@@ -550,27 +589,46 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           // MERGE like Assembly Exporter: combine original objects with fetched properties
           let fullObjects = objectsToProcess;
           if (fullProperties) {
-            fullObjects = objectsToProcess.map((obj: any, idx: number) => ({
-              ...obj,
-              properties: Array.isArray(fullProperties) 
-                ? (fullProperties[idx]?.properties || obj.properties)
-                : (fullProperties?.properties || obj.properties),
-            }));
-            addLog(`Merged ${fullObjects.length} objects with properties`, "debug");
+            addLog(`📦 Merging ${objectsToProcess.length} objects with properties...`, "debug");
+            fullObjects = objectsToProcess.map((obj: any, idx: number) => {
+              const merged = {
+                ...obj,
+                properties: Array.isArray(fullProperties) 
+                  ? (fullProperties[idx]?.properties || obj.properties)
+                  : (fullProperties?.properties || obj.properties),
+              };
+              addLog(`  Object ${idx}: merged properties=${!!merged.properties}, type=${Array.isArray(merged.properties) ? "array" : typeof merged.properties}`, "debug");
+              return merged;
+            });
+            addLog(`✅ Merged ${fullObjects.length} objects with properties`, "debug");
+          } else {
+            addLog(`⚠️ No properties returned, trying Tekla attributes fallback...`, "warn");
+            const attrs = await getObjectAttributesFallback(api, selectionItem.modelId, objectRuntimeIds, addLog);
+            if (attrs) {
+              fullObjects = objectsToProcess.map((obj: any, idx: number) => ({
+                ...obj,
+                properties: Array.isArray(attrs) ? attrs[idx] : attrs,
+              }));
+              addLog(`✅ Merged ${fullObjects.length} objects with Tekla attributes fallback`, "debug");
+            } else {
+              addLog(`ℹ️ No attributes fallback either, continuing with original objects`, "info");
+            }
           }
 
           // Flatten all objects
           if (fullObjects.length > 0) {
+            addLog(`🔄 Flattening ${fullObjects.length} objects...`, "debug");
             const flattened = await Promise.all(
-              fullObjects.map((o: any) =>
-                flattenProps(o, selectionItem.modelId || "", projectName, nameMap, api, addLog)
-              )
+              fullObjects.map((o: any, idx: number) => {
+                addLog(`  Flattening object ${idx}...`, "debug");
+                return flattenProps(o, selectionItem.modelId || "", projectName, nameMap, api, addLog);
+              })
             );
             allFlattened.push(...flattened);
-            addLog(`Flattened ${flattened.length} objects, found keys:`, "debug");
+            addLog(`📊 Flattened results:`, "debug");
             flattened.forEach((obj, idx) => {
               const keys = Object.keys(obj).filter(k => obj[k] && String(obj[k]).length > 0);
-              addLog(`  Object ${idx}: ${keys.slice(0, 5).join(", ")} (${keys.length} total)`, "debug");
+              addLog(`  Object ${idx}: ${keys.slice(0, 5).join(", ")} (${keys.length} total keys)`, "debug");
             });
             processedObjects += objectsToProcess.length;
             addLog(`Processed ${processedObjects}/${totalObjs} objects`, "debug");
@@ -675,15 +733,23 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
         if (objectRuntimeIds.length === 0) continue;
 
         try {
-          const fullProperties = await (api.viewer as any).getObjectProperties?.(
+          let fullProperties = await (api.viewer as any).getObjectProperties?.(
             selectionItem as any,
             objectRuntimeIds,
             { includeHidden: true }
           );
 
           if (!fullProperties) {
-            addLog(`No properties for model ${selectionItem.modelId}`, "warn");
-            continue;
+            // UUUS: Tekla attributes fallback
+            addLog(`No properties for model ${selectionItem.modelId}, trying Tekla fallback...`, "debug");
+            const attrs = await getObjectAttributesFallback(api, selectionItem.modelId, objectRuntimeIds, addLog);
+            if (attrs) {
+              fullProperties = attrs;
+              addLog(`Using Tekla attributes as fallback`, "debug");
+            } else {
+              addLog(`No properties or attributes for model ${selectionItem.modelId}`, "warn");
+              continue;
+            }
           }
 
           for (let idx = 0; idx < objectRuntimeIds.length; idx++) {
