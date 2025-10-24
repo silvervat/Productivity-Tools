@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as WorkspaceAPI from "trimble-connect-workspace-api";
-import type { ObjectProperties } from "trimble-connect-workspace-api";  // ← Lisa tüüp
+import type { ObjectProperties } from "trimble-connect-workspace-api";  // Lisa tüüp
 import SectionPlanesCreator from './components/SectionPlanesCreator';
 import MarkupAnnotations from './components/MarkupAnnotations';
 import ElementSearch from './components/ElementSearch';
@@ -14,12 +14,11 @@ type Language = "et" | "en";
 function App() {
   const [tcApi, setTcApi] = useState<WorkspaceAPI.WorkspaceAPI>();
   const [language, setLanguage] = useState<Language>("et");
-  const [exportData, setExportData] = useState<ObjectProperties[]>([]);  // ← Lisa state valitud objektidele (täida ElementSearch-is)
+  const [exportData] = useState<ObjectProperties[]>([]);  // Tühja array (täida ElementSearch-is hiljem, eemaldan set, kuna pole kasutusel)
 
-  // ← Lisa logger funktsioon (kasuta console.log, vaheta hiljem toast'i vastu)
+  // Logger funktsioon (kasuta console.log)
   const addLog = useCallback((message: string) => {
-    console.log(message);  // Nt. "✅ Markup rakendatud!"
-    // Hiljem: toast.success(message); kui lisad react-toastify
+    console.log(message);  // Hiljem vaheta toast.success(message);
   }, []);
 
   useEffect(() => {
@@ -49,7 +48,6 @@ function App() {
 
       <div className='components-grid'>
         <section className='component-section'>
-          {/* ← Lisa exportData ja addLog props'id */}
           <AdvancedMarkupBuilder 
             api={tcApi as WorkspaceAPI.WorkspaceAPI} 
             exportData={exportData} 
