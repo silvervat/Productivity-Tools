@@ -2,7 +2,7 @@ import { useRef, useState, useCallback } from "react";
 import * as WorkspaceAPI from "trimble-connect-workspace-api";
 import "./AdvancedMarkupBuilder.css";
 
-const VERSION = "3.0.1-diag"; // Assembly Exporter + detailed diagnostics
+const VERSION = "3.0.1-diag-uda"; // Assembly Exporter + detailed diagnostics + Tekla UDA fallback
 
 type Language = "et" | "en";
 type Tab = "markup" | "debug";
@@ -171,7 +171,6 @@ function classifyGuid(val: string): "IFC" | "MS" | "UNKNOWN" {
 }
 
 // Assembly Exporter async fallback functions
-
 async function getPresentationLayerString(api: any, modelId: string, runtimeId: number, addLog?: Function): Promise<string> {
   try {
     const layers = (await api?.viewer?.getObjectLayers?.(modelId, [runtimeId])) ?? (await api?.viewer?.getPresentationLayers?.(modelId, [runtimeId]));
@@ -268,7 +267,7 @@ async function buildModelNameMap(api: any, modelIds: string[], addLog?: Function
   return map;
 }
 
-// TÄIELIK flattenProps - Assembly Exporter koopia!
+// TÄIELIK flattenProps - Assembly Exporter koopia + Tekla UDA fallback!
 async function flattenProps(
   obj: any,
   modelId: string,
@@ -277,7 +276,14 @@ async function flattenProps(
   api: any,
   addLog?: Function
 ): Promise<Record<string, string>> {
-  addLog?.(`\n🔍 flattenProps START: obj.id=${obj?.id}, has properties=${!!obj?.properties}`, "debug");
+  addLog?.(`\n🔍 flattenProps START: obj.id=${obj?.id}, has properties=${!!obj?.properties}, has attributes=${!!obj?.attributes}`, "debug");
+  
+  // LOGI TÄIELIK OBJ STRUKTUUR (lühidatult, et näha peidetud UDAsid)
+  const objKeys = Object.keys(obj || {});
+  addLog?.(`Obj keys: ${objKeys.slice(0, 10).join(", ")}${objKeys.length > 10 ? "..." : ""}`, "debug");
+  if (obj?.attributes) {
+    addLog?.(`Attributes sample: ${Object.entries(obj.attributes).slice(0, 3).map(([k,v]) => `${k}:${String(v).substring(0,20)}`).join(", ")}`, "debug");
+  }
   
   const out: Record<string, string> = {
     GUID: "",
@@ -308,7 +314,7 @@ async function flattenProps(
     out[key] = s;
   };
 
-  // Property sets
+  // Property sets (standard)
   if (Array.isArray(obj?.properties)) {
     addLog?.(`✅ Properties array found: ${obj.properties.length} sets`, "debug");
     obj.properties.forEach((propSet: any) => {
@@ -329,6 +335,19 @@ async function flattenProps(
     Object.entries(obj.properties).forEach(([key, val]) => push("Properties", key, val));
   } else {
     addLog?.(`⚠️ NO PROPERTIES! type=${typeof obj?.properties}, value=${obj?.properties}`, "warn");
+  }
+
+  // UUS: Tekla UDA fallback - proovi attributes (sageli UDAsid nagu CAST_UNIT.MARK seal)
+  if (obj?.attributes && typeof obj.attributes === "object") {
+    addLog?.(`✅ Found attributes object: ${Object.keys(obj.attributes).length} keys`, "debug");
+    Object.entries(obj.attributes).forEach(([key, val]) => {
+      push("UDA", key, val);  // Grupi "UDA" alla, nt UDA.CAST_UNIT.MARK
+      addLog?.(`    UDA Found: ${key} = ${String(val).substring(0, 40)}`, "debug");
+    });
+  } else if (obj?.userDefined || obj?.udas) {  // Alternatiivsed võtmed
+    const udaSource = obj.userDefined || obj.udas;
+    addLog?.(`✅ Found alternative UDA source (${Object.keys(udaSource).length} keys)`, "debug");
+    Object.entries(udaSource).forEach(([key, val]) => push("UDA", key, val));
   }
 
   // Standard fields
