@@ -1,24 +1,30 @@
 import { useRef, useState, useCallback } from "react";
 import * as WorkspaceAPI from "trimble-connect-workspace-api";
 import "./AdvancedMarkupBuilder.css";
-const VERSION = "3.0.1-beta"; // Updated for full fallback support
+
+const VERSION = "3.0.1"; // Full Assembly Exporter integration
+
 type Language = "et" | "en";
 type Tab = "markup" | "debug";
+
 interface MarkupResult {
   text: string;
   count: number;
 }
+
 interface PropertyField {
   name: string;
   value: string;
   selected: boolean;
 }
+
 interface LogEntry {
   timestamp: string;
   level: "info" | "warn" | "error" | "debug";
   message: string;
   source?: string;
 }
+
 const translations = {
   et: {
     title: "MARKUP KOOSTE EHITAJA",
@@ -83,6 +89,7 @@ const translations = {
     errorsOnly: "Errors",
   },
 };
+
 const SEPARATORS = [
   { label: " | ", value: " | " },
   { label: " - ", value: " - " },
@@ -92,13 +99,16 @@ const SEPARATORS = [
   { label: " / ", value: " / " },
   { label: "\\n (new line)", value: "\n" },
 ];
+
 interface AdvancedMarkupBuilderProps {
   api: WorkspaceAPI.WorkspaceAPI | undefined;
   language?: Language;
 }
-// Logger class (sama kui sinul)
+
+// Logger class
 class DebugLogger {
   private logs: LogEntry[] = [];
+
   log(message: string, level: "info" | "warn" | "error" | "debug" = "info", source: string = "AMB") {
     const entry: LogEntry = {
       timestamp: new Date().toLocaleTimeString("et-EE"),
@@ -107,24 +117,29 @@ class DebugLogger {
       source,
     };
     this.logs.push(entry);
+
     const prefix = `[${VERSION}] [${source}] ${level.toUpperCase()}`;
     if (level === "error") console.error(prefix, message);
     else if (level === "warn") console.warn(prefix, message);
     else if (level === "debug") console.debug(prefix, message);
     else console.log(prefix, message);
   }
+
   getLogs(filter: "all" | "info" | "warn" | "error" = "all"): LogEntry[] {
     if (filter === "all") return this.logs;
     return this.logs.filter((l) => l.level === filter);
   }
+
   clear() {
     this.logs = [];
   }
+
   export(): string {
     return this.logs
       .map((l) => `[${l.timestamp}] [${l.source}] ${l.level.toUpperCase()}: ${l.message}`)
       .join("\n");
   }
+
   downloadAsFile() {
     const content = this.export();
     const element = document.createElement("a");
@@ -136,53 +151,85 @@ class DebugLogger {
     document.body.removeChild(element);
   }
 }
+
 const debugLogger = new DebugLogger();
-// Helper functions (täielikud Assembly Exporterist)
+
+// Helper functions
 function sanitizeKey(s: string) {
   return String(s).replace(/\s+/g, "_").replace(/[^\w.-]/g, "").replace(/\+/g, ".").trim();
 }
+
 function normalizeGuid(s: string): string {
   return s.replace(/^urn:(uuid:)?/i, "").trim();
 }
+
 function classifyGuid(val: string): "IFC" | "MS" | "UNKNOWN" {
   const s = normalizeGuid(val.trim());
   if (/^[0-9A-Za-z_$]{22}$/.test(s)) return "IFC";
   if (/^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/.test(s) || /^[0-9A-Fa-f]{32}$/.test(s)) return "MS";
   return "UNKNOWN";
 }
-async function getPresentationLayerString(api: any, modelId: string, runtimeId: number): Promise<string> {
+
+// Assembly Exporter async fallback functions
+async function getPresentationLayerString(api: any, modelId: string, runtimeId: number, addLog?: Function): Promise<string> {
   try {
     const layers = (await api?.viewer?.getObjectLayers?.(modelId, [runtimeId])) ?? (await api?.viewer?.getPresentationLayers?.(modelId, [runtimeId]));
     if (Array.isArray(layers) && layers.length) {
       const first = Array.isArray(layers[0]) ? layers[0] : layers;
-      return first.filter(Boolean).map(String).join(", ");
+      const result = first.filter(Boolean).map(String).join(", ");
+      if (result) addLog?.(`Got presentation layers: ${result}`, "debug");
+      return result;
     }
-  } catch {}
+  } catch (err: any) {
+    addLog?.(`getPresentationLayers error: ${err.message}`, "warn");
+  }
   return "";
 }
+
 async function getReferenceObjectInfo(
   api: any,
   modelId: string,
-  runtimeId: number
+  runtimeId: number,
+  addLog?: Function
 ): Promise<{ fileName?: string; fileFormat?: string; commonType?: string; guidIfc?: string; guidMs?: string }> {
   const out: any = {};
   try {
     const meta = (await api?.viewer?.getObjectMetadata?.(modelId, [runtimeId])) ?? (await api?.viewer?.getObjectInfo?.(modelId, runtimeId));
     const m = Array.isArray(meta) ? meta[0] : meta;
-    if (m?.file?.name) out.fileName = String(m.file.name);
-    if (m?.file?.format) out.fileFormat = String(m.file.format);
-    if (m?.commonType) out.commonType = String(m.commonType);
-    if (m?.globalId) out.guidMs = String(m.globalId);
+    if (m?.file?.name) {
+      out.fileName = String(m.file.name);
+      addLog?.(`Got fileName: ${out.fileName}`, "debug");
+    }
+    if (m?.file?.format) {
+      out.fileFormat = String(m.file.format);
+      addLog?.(`Got fileFormat: ${out.fileFormat}`, "debug");
+    }
+    if (m?.commonType) {
+      out.commonType = String(m.commonType);
+      addLog?.(`Got commonType: ${out.commonType}`, "debug");
+    }
+    if (m?.globalId) {
+      out.guidMs = String(m.globalId);
+      addLog?.(`Got GUID_MS: ${out.guidMs}`, "debug");
+    }
     if (!out.guidIfc) {
       try {
         const ext = await api?.viewer?.convertToObjectIds?.(modelId, [runtimeId]);
-        if (ext && ext[0]) out.guidIfc = String(ext[0]);
-      } catch {}
+        if (ext && ext[0]) {
+          out.guidIfc = String(ext[0]);
+          addLog?.(`Got GUID_IFC: ${out.guidIfc}`, "debug");
+        }
+      } catch (err: any) {
+        addLog?.(`convertToObjectIds fallback error: ${err.message}`, "warn");
+      }
     }
-  } catch {}
+  } catch (err: any) {
+    addLog?.(`getReferenceObjectInfo error: ${err.message}`, "warn");
+  }
   return out;
 }
-async function getProjectName(api: any): Promise<string> {
+
+async function getProjectName(api: any, addLog?: Function): Promise<string> {
   try {
     const proj = typeof api?.project?.getProject === "function" ? await api.project.getProject() : api?.project || {};
     return String(proj?.name || "");
@@ -190,37 +237,44 @@ async function getProjectName(api: any): Promise<string> {
     return "";
   }
 }
-async function buildModelNameMap(api: any, modelIds: string[]) {
+
+async function buildModelNameMap(api: any, modelIds: string[], addLog?: Function) {
   const map = new Map<string, string>();
   try {
     const list: any[] = await api?.viewer?.getModels?.();
     for (const m of list || []) {
-      if (m?.id && m?.name) map.set(String(m.id), String(m.name));
+      if (m?.id && m?.name) {
+        map.set(String(m.id), String(m.name));
+        addLog?.(`Model: ${m.id} = ${m.name}`, "debug");
+      }
     }
-  } catch {}
+  } catch (err: any) {
+    addLog?.(`getModels error: ${err.message}`, "warn");
+  }
   for (const id of new Set(modelIds)) {
     if (map.has(id)) continue;
     try {
       const f = await api?.viewer?.getLoadedModel?.(id);
       const n = f?.name || f?.file?.name;
-      if (n) map.set(id, String(n));
-    } catch {}
+      if (n) {
+        map.set(id, String(n));
+        addLog?.(`Loaded model: ${id} = ${n}`, "debug");
+      }
+    } catch (err: any) {
+      addLog?.(`getLoadedModel fallback error: ${err.message}`, "warn");
+    }
   }
   return map;
 }
-async function getSelectedObjects(api: any): Promise<Array<{ modelId: string; objects: any[] }>> {
-  const viewer: any = api?.viewer;
-  const mos = await viewer?.getObjects?.({ selected: true });
-  if (!Array.isArray(mos) || !mos.length) return [];
-  return mos.map((mo: any) => ({ modelId: String(mo.modelId), objects: mo.objects || [] }));
-}
-// TÄIELIK PARANDUS: flattenProps Assembly Exporterist (async, fallback'id)
+
+// TÄIELIK flattenProps - Assembly Exporter koopia!
 async function flattenProps(
   obj: any,
   modelId: string,
   projectName: string,
   modelNameById: Map<string, string>,
-  api: any
+  api: any,
+  addLog?: Function
 ): Promise<Record<string, string>> {
   const out: Record<string, string> = {
     GUID: "",
@@ -234,6 +288,7 @@ async function flattenProps(
   };
   const propMap = new Map<string, string>();
   const keyCounts = new Map<string, number>();
+
   const push = (group: string, name: string, val: unknown) => {
     const g = sanitizeKey(group);
     const n = sanitizeKey(name);
@@ -243,125 +298,103 @@ async function flattenProps(
     if (count > 0) key = `${baseKey}_${count}`;
     keyCounts.set(baseKey, count + 1);
     let v: unknown = val;
-    if (Array.isArray(v)) v = v.map(x => (x == null ? "" : String(x))).join(" | ");
+    if (Array.isArray(v)) v = v.map((x) => (x == null ? "" : String(x))).join(" | ");
     else if (typeof v === "object" && v !== null) v = JSON.stringify(v);
     const s = v == null ? "" : String(v);
     propMap.set(key, s);
     out[key] = s;
   };
-  // Property setid (sh peidetud)
+
+  // Property sets
   if (Array.isArray(obj?.properties)) {
     obj.properties.forEach((propSet: any) => {
       const setName = propSet?.name || "Unknown";
       const setProps = propSet?.properties || [];
       if (Array.isArray(setProps)) {
         setProps.forEach((prop: any) => {
-          const value = prop?.displayValue ?? prop?.value;
+          const value = (prop?.displayValue ?? prop?.value) || "";
           const name = prop?.name || "Unknown";
           push(setName, name, value);
+          addLog?.(`Found: ${setName}.${name} = ${String(value).substring(0, 50)}`, "debug");
         });
       }
     });
-  } else if (typeof obj?.properties === "object" && obj.properties !== null && !Array.isArray(obj.properties)) {
-    Object.entries(obj.properties).forEach(([key, val]) => {
-      if (val !== null && val !== undefined) {
-        push("Properties", key, val);
-      }
-    });
+  } else if (typeof obj?.properties === "object" && obj.properties !== null) {
+    Object.entries(obj.properties).forEach(([key, val]) => push("Properties", key, val));
   }
-  // Standard väljad
+
+  // Standard fields
   if (obj?.id) out.ObjectId = String(obj.id);
   if (obj?.name) out.Name = String(obj.name);
   if (obj?.type) out.Type = String(obj.type);
   if (obj?.product?.name) out.ProductName = String(obj.product.name);
   if (obj?.product?.description) out.ProductDescription = String(obj.product.description);
   if (obj?.product?.type) out.ProductType = String(obj.product.type);
-  // UUS: Fallback Product väljadele property-set'idest, kui otse puudub
+
+  // Fallback Product fields from property sets
   if (!out.ProductName || !out.ProductDescription || !out.ProductType) {
     const props: any[] = Array.isArray(obj?.properties) ? obj.properties : [];
     for (const set of props) {
       for (const p of set?.properties ?? []) {
-        if (/product[_\s]?name/i.test(p?.name) && !out.ProductName) out.ProductName = String(p?.value || p?.displayValue || "");
-        if (/product[_\s]?description/i.test(p?.name) && !out.ProductDescription) out.ProductDescription = String(p?.value || p?.displayValue || "");
-        if (/product[_\s]?object[_\s]?type/i.test(p?.name) && !out.ProductType) out.ProductType = String(p?.value || p?.displayValue || "");
+        if (/product[_\s]?name/i.test(p?.name) && !out.ProductName) {
+          out.ProductName = String(p?.value || p?.displayValue || "");
+          addLog?.(`Fallback ProductName: ${out.ProductName}`, "debug");
+        }
+        if (/product[_\s]?description/i.test(p?.name) && !out.ProductDescription) {
+          out.ProductDescription = String(p?.value || p?.displayValue || "");
+          addLog?.(`Fallback ProductDescription: ${out.ProductDescription}`, "debug");
+        }
+        if (/product[_\s]?object[_\s]?type/i.test(p?.name) && !out.ProductType) {
+          out.ProductType = String(p?.value || p?.displayValue || "");
+          addLog?.(`Fallback ProductType: ${out.ProductType}`, "debug");
+        }
       }
     }
-    debugLogger.log(`flattenProps: Lisasin Product fallback'id: Name=${out.ProductName}, Desc=${out.ProductDescription}, Type=${out.ProductType}`, "debug");
   }
-  // GUIDid propidest
+
+  // GUIDs from props
   let guidIfc = "";
   let guidMs = "";
-  for (const [k, v] of propMap) {
-    if (!/guid|globalid|tekla_guid|id_guid/i.test(k)) continue;
+  Object.entries(propMap).forEach(([k, v]) => {
+    if (!/guid|globalid|tekla_guid|id_guid/i.test(k)) return;
     const cls = classifyGuid(v);
-    if (cls === "IFC" && !guidIfc) guidIfc = v;
-    if (cls === "MS" && !guidMs) guidMs = v;
-  }
-  // UUS: Spetsiifiline käsitlemine JSON-i "ReferenceObject+GUID (MS)" jaoks
-  if (guidMs) {
-    const jsonKey = "ReferenceObject.GUID_MS"; // Sanitized from "ReferenceObject+GUID (MS)"
-    out[jsonKey] = guidMs;
-    debugLogger.log(`flattenProps: Leidsin ReferenceObject+GUID (MS): ${guidMs}`, "debug");
-  }
-  // Lisa metadata.globalId GUID_MS jaoks
-  try {
-    debugLogger.log(`flattenProps: Proovin lugeda metadata modelId=${modelId}, objId=${obj?.id}`, "debug");
-    const metaArr = await api?.viewer?.getObjectMetadata?.(modelId, [obj?.id]);
-    const metaOne = Array.isArray(metaArr) ? metaArr[0] : metaArr;
-    debugLogger.log(`flattenProps: Metadata tulemus: ${JSON.stringify(metaOne)}`, "debug");
-    if (metaOne?.globalId) {
-      const g = String(metaOne.globalId);
-      out.GUID_MS = out.GUID_MS || g;
-      out["ReferenceObject.GlobalId"] = g;
-      debugLogger.log(`flattenProps: Leidsin GUID_MS: ${g}`, "info");
-    } else {
-      debugLogger.log("flattenProps: globalId puudub metadata's", "warn");
+    if (cls === "IFC" && !guidIfc) {
+      guidIfc = normalizeGuid(v);
+      addLog?.(`Detected GUID_IFC from props: ${guidIfc}`, "debug");
     }
-  } catch (e) {
-    debugLogger.log("flattenProps: getObjectMetadata viga: " + e.message, "warn");
-  }
-  // IFC GUID fallback (runtime->external)
-  if (!guidIfc && obj.id) {
-    try {
-      const externalIds = await api.viewer.convertToObjectIds(modelId, [obj.id]);
-      const externalId = externalIds[0];
-      if (externalId && classifyGuid(externalId) === "IFC") guidIfc = externalId;
-      debugLogger.log(`flattenProps: Leidsin GUID_IFC fallback'ist: ${guidIfc}`, "info");
-    } catch (e) {
-      debugLogger.log(`flattenProps: convertToObjectIds viga objId=${obj.id}: ${e.message}`, "warn");
+    if (cls === "MS" && !guidMs) {
+      guidMs = normalizeGuid(v);
+      addLog?.(`Detected GUID_MS from props: ${guidMs}`, "debug");
+    }
+  });
+
+  // ReferenceObject fallback - async!
+  if (obj?.runtimeId && api?.viewer) {
+    const refInfo = await getReferenceObjectInfo(api, modelId, obj.runtimeId, addLog);
+    if (refInfo.fileName && !out.FileName) out.FileName = refInfo.fileName;
+    if (refInfo.fileFormat) out.FileFormat = refInfo.fileFormat;
+    if (refInfo.commonType) out.CommonType = refInfo.commonType;
+    if (refInfo.guidIfc && !guidIfc) {
+      guidIfc = normalizeGuid(refInfo.guidIfc);
+      addLog?.(`Got GUID_IFC from ReferenceObject: ${guidIfc}`, "debug");
+    }
+    if (refInfo.guidMs && !guidMs) {
+      guidMs = normalizeGuid(refInfo.guidMs);
+      addLog?.(`Got GUID_MS from ReferenceObject: ${guidMs}`, "debug");
     }
   }
-  // Presentation Layers fallback
-  if (![...propMap.keys()].some(k => k.toLowerCase().startsWith("presentation_layers."))) {
-    const rid = Number(obj?.id);
-    if (Number.isFinite(rid)) {
-      const layerStr = await getPresentationLayerString(api, modelId, rid);
-      if (layerStr) {
-        const key = "Presentation_Layers.Layer";
-        propMap.set(key, layerStr);
-        out[key] = layerStr;
-        debugLogger.log(`flattenProps: Leidsin Presentation Layers: ${layerStr}`, "info");
-      }
-    }
+
+  // PresentationLayers fallback - async!
+  if (obj?.runtimeId && api?.viewer) {
+    const layerStr = await getPresentationLayerString(api, modelId, obj.runtimeId, addLog);
+    if (layerStr) out.PresentationLayers = layerStr;
   }
-  // Reference Object fallback
-  const hasRefBlock = [...propMap.keys()].some(k => k.toLowerCase().startsWith("referenceobject."));
-  if (!hasRefBlock) {
-    const rid = Number(obj?.id);
-    if (Number.isFinite(rid)) {
-      const ref = await getReferenceObjectInfo(api, modelId, rid);
-      if (ref.fileName) out["ReferenceObject.File_Name"] = ref.fileName;
-      if (ref.fileFormat) out["ReferenceObject.File_Format"] = ref.fileFormat;
-      if (ref.commonType) out["ReferenceObject.Common_Type"] = ref.commonType;
-      if (!guidIfc && ref.guidIfc) guidIfc = ref.guidIfc;
-      if (!guidMs && ref.guidMs) guidMs = ref.guidMs;
-      debugLogger.log(`flattenProps: Reference Object info: ${JSON.stringify(ref)}`, "debug");
-    }
-  }
-  out.GUID_IFC = guidIfc;
-  out.GUID_MS = guidMs;
-  out.GUID = guidIfc || guidMs || "";
-  debugLogger.log(`flattenProps: Final keys: ${Object.keys(out).length}, esimesed: ${Object.keys(out).slice(0, 5).join(", ")}`, "debug");
+
+  // Final GUID assignment
+  if (guidIfc) out.GUID_IFC = guidIfc;
+  if (guidMs) out.GUID_MS = guidMs;
+  if (guidIfc || guidMs) out.GUID = guidIfc || guidMs;
+
   return out;
 }
 
@@ -382,111 +415,161 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
   const [logFilter, setLogFilter] = useState<"all" | "info" | "warn" | "error">("all");
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const previousMarkupIds = useRef<string[]>([]);
-  // Update logs in UI
+
   const updateLogs = useCallback(() => {
     setLogs(debugLogger.getLogs(logFilter));
   }, [logFilter]);
-  const addLog = useCallback((message: string, level: "info" | "warn" | "error" | "debug" = "info", source = "AMB") => {
-    debugLogger.log(message, level, source);
-    updateLogs();
-  }, [updateLogs]);
-  // Drag handlers (sama)
+
+  const addLog = useCallback(
+    (message: string, level: "info" | "warn" | "error" | "debug" = "info", source = "AMB") => {
+      debugLogger.log(message, level, source);
+      updateLogs();
+    },
+    [updateLogs]
+  );
+
+  // Drag handlers
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
     setDraggedIndex(index);
     e.dataTransfer.effectAllowed = "move";
   };
+
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
   };
+
   const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
     e.preventDefault();
     if (draggedIndex === null || draggedIndex === targetIndex) return;
+
     const newOrder = [...orderedFields];
     const [draggedField] = newOrder.splice(draggedIndex, 1);
     newOrder.splice(targetIndex, 0, draggedField);
+
     setOrderedFields(newOrder);
     setDraggedIndex(null);
     addLog(`Field reordered: ${draggedField}`, "debug");
   };
-  // Discover fields (täielik, nagu Exporter)
+
+  // Discover fields - täielik, nagu Assembly Exporter
   const discoverFields = useCallback(async () => {
-    addLog(`Starting field discovery...`, "info");
+    addLog(`🔍 Starting field discovery...`, "info");
+
     if (!api?.viewer) {
       const msg = "API viewer not available";
       setDiscoveryError(msg);
       addLog(msg, "error");
       return;
     }
+
     setIsDiscovering(true);
     setDiscoveryError("");
+
     try {
-      // Kasutame getSelectedObjects nagu Exporteris
-      const selectedWithBasic = await getSelectedObjects(api);
-      addLog(`Got selected objects: ${selectedWithBasic.length} models`, "info");
-      if (!selectedWithBasic.length) {
+      const selection = await api.viewer.getSelection();
+      addLog(`Selection received: ${selection?.length || 0} items`, "info");
+
+      if (!selection || selection.length === 0) {
         const msg = t.selectObjects;
         setDiscoveryError(msg);
         addLog(msg, "warn");
         setIsDiscovering(false);
         return;
       }
-      const projectName = await getProjectName(api);
-      const modelIds = selectedWithBasic.map(m => m.modelId);
-      const nameMap = await buildModelNameMap(api, modelIds);
-      const allFlattened: Record<string, string>[] = [];
-      let totalObjs = selectedWithBasic.reduce((sum, m) => sum + (m.objects?.length || 0), 0);
-      let processedObjects = 0;
-      addLog(`Processing ${totalObjs} total objects across ${selectedWithBasic.length} models`, "debug");
-      for (let i = 0; i < selectedWithBasic.length; i++) {
-        const { modelId, objects } = selectedWithBasic[i];
-        const objectRuntimeIds = objects.map((o: any) => Number(o?.id)).filter((n: number) => Number.isFinite(n));
-        let fullObjects = objects;
-        try {
-          const fullProperties = await api.viewer.getObjectProperties(modelId, objectRuntimeIds, { includeHidden: true });
-          fullObjects = objects.map((obj: any, idx: number) => ({
-            ...obj,
-            properties: fullProperties[idx]?.properties || obj.properties,
-          }));
-          addLog(`Loaded properties for ${fullProperties.length} objects in model ${modelId}`, "debug");
-        } catch (e: any) {
-          addLog(`getObjectProperties failed for model ${modelId}: ${e.message}`, "warn");
-        }
-        const flattened = await Promise.all(fullObjects.map((o: any) => flattenProps(o, modelId, projectName, nameMap, api)));
-        allFlattened.push(...flattened);
-        processedObjects += objects.length;
-        addLog(`Processed ${processedObjects}/${totalObjs} objects`, "debug");
-      }
-      // Kogu unikaalsed väljad KÕIGIST objektidest
-      const allKeys = Array.from(new Set(allFlattened.flatMap(r => Object.keys(r)))).filter(k => k !== "ObjectId" && k !== "Project" && k !== "ModelId" && k !== "FileName");
-      addLog(`Found ${allKeys.length} unique keys, first 10: ${allKeys.slice(0, 10).join(", ")}`, "info");
+
       const fieldsMap: { [key: string]: PropertyField } = {};
+      const allFlattened: Record<string, string>[] = [];
+      let totalObjs = 0;
+      let processedObjects = 0;
+
+      // Calculate total
+      for (const sel of selection) {
+        totalObjs += sel.objectRuntimeIds?.length || 0;
+      }
+      addLog(`Processing ${totalObjs} total objects`, "info");
+
+      const projectName = await getProjectName(api, addLog);
+      const modelIds = selection.map((item: any) => item.modelId).filter(Boolean);
+      const nameMap = await buildModelNameMap(api, modelIds, addLog);
+
+      for (const selectionItem of selection) {
+        if (!selectionItem.objectRuntimeIds) {
+          addLog("No objectRuntimeIds in selection item", "warn");
+          continue;
+        }
+
+        const objectRuntimeIds = Array.isArray(selectionItem.objectRuntimeIds)
+          ? selectionItem.objectRuntimeIds
+          : [selectionItem.objectRuntimeIds];
+
+        addLog(`Processing model: ${selectionItem.modelId}, ${objectRuntimeIds.length} objects`, "info");
+
+        if (objectRuntimeIds.length === 0) continue;
+
+        try {
+          const fullProperties = await (api.viewer as any).getObjectProperties?.(
+            selectionItem as any,
+            objectRuntimeIds,
+            { includeHidden: true }
+          );
+
+          if (fullProperties) {
+            addLog(`Got properties for ${objectRuntimeIds.length} objects`, "debug");
+            const fullObjects = Array.isArray(fullProperties) ? fullProperties : [fullProperties];
+
+            const flattened = await Promise.all(
+              fullObjects.map((o: any) =>
+                flattenProps(o, selectionItem.modelId || "", projectName, nameMap, api, addLog)
+              )
+            );
+            allFlattened.push(...flattened);
+            processedObjects += objectRuntimeIds.length;
+            addLog(`Processed ${processedObjects}/${totalObjs} objects`, "debug");
+          } else {
+            addLog(`No properties returned for ${objectRuntimeIds.length} objects`, "warn");
+          }
+        } catch (err: any) {
+          addLog(`Property fetch error: ${err.message}`, "error");
+        }
+      }
+
+      // Extract unique fields - 20-ni piir!
+      const allKeys = Array.from(new Set(allFlattened.flatMap((r) => Object.keys(r)))).filter(
+        (k) => k !== "ObjectId" && k !== "Project" && k !== "ModelId" && k !== "FileName"
+      );
+
+      addLog(`Found ${allKeys.length} unique fields, limiting to 20`, "info");
+
+      const fieldsMapTemp: { [key: string]: PropertyField } = {};
       let fieldCount = 0;
-      for (const key of allKeys.slice(0, 20)) { // Piira 20-ni UI jaoks
-        const sampleValue = allFlattened.find(r => r[key] && r[key].trim().length > 0)?.[key] || `(${key})`;
+
+      for (const key of allKeys.slice(0, 20)) {
+        const sampleValue = allFlattened.find((r) => r[key] && r[key].trim().length > 0)?.[key] || `(${key})`;
         if (sampleValue && sampleValue.trim().length > 0) {
-          fieldsMap[key] = {
+          fieldsMapTemp[key] = {
             name: key,
             value: String(sampleValue).substring(0, 100),
             selected: fieldCount < 5,
           };
+          addLog(`Field: ${key} = ${String(sampleValue).substring(0, 40)}`, "debug");
           fieldCount++;
-          if (key.includes("Ifc") || key.includes("BaseQuantities") || key.includes("OrientedBoundingBox")) addLog(`Found key: ${key} = ${sampleValue.substring(0, 50)}`, "info");
         }
       }
+
       if (fieldCount === 0) {
-        addLog("No fields found, using defaults", "warn");
-        const defaultFields = ["Name", "Type", "GUID", "Code", "Description"];
+        addLog(`No fields found, using defaults`, "warn");
+        const defaultFields = ["Name", "Type", "GUID", "GUID_IFC", "GUID_MS"];
         defaultFields.forEach((field) => {
-          fieldsMap[field] = { name: field, value: `(${field})`, selected: fieldCount < 3 };
+          fieldsMapTemp[field] = { name: field, value: `(${field})`, selected: fieldCount < 3 };
           fieldCount++;
         });
       }
-      setDiscoveredFields(fieldsMap);
-      setOrderedFields(Object.keys(fieldsMap).filter(key => fieldsMap[key].selected));
-      const msg = `✅ ${fieldCount} välja leitud ${allFlattened.length} objektist!`;
-      setSuccessMessage(msg);
-      addLog(msg, "info");
+
+      setDiscoveredFields(fieldsMapTemp);
+      setOrderedFields(Object.keys(fieldsMapTemp).filter((key) => fieldsMapTemp[key].selected));
+      addLog(`✅ Discovery complete: ${fieldCount} fields from ${allFlattened.length} objects!`, "info");
+      setSuccessMessage(`✅ ${fieldCount} välja leitud ${allFlattened.length} objektist!`);
       setTimeout(() => setSuccessMessage(""), 3000);
     } catch (err: any) {
       const msg = `Discover error: ${err.message}`;
@@ -496,6 +579,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
       setIsDiscovering(false);
     }
   }, [api, t, addLog]);
+
   const toggleFieldSelection = (fieldName: string) => {
     setDiscoveredFields((prev) => {
       const newMap = { ...prev, [fieldName]: { ...prev[fieldName], selected: !prev[fieldName].selected } };
@@ -505,16 +589,19 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
       return newMap;
     });
   };
+
   const applyMarkup = useCallback(async () => {
     if (!api?.viewer || orderedFields.length === 0) {
       setDiscoveryError(t.noFieldsSelected);
       addLog(t.noFieldsSelected, "warn");
       return;
     }
+
     setIsApplying(true);
     setDiscoveryError("");
     setSuccessMessage("");
     addLog(`Starting markup application with ${orderedFields.length} fields`, "info");
+
     try {
       const selection = await api.viewer.getSelection();
       if (!selection || selection.length === 0) {
@@ -523,41 +610,65 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
         setIsApplying(false);
         return;
       }
+
       const results: MarkupResult[] = [];
       const newMarkupIds: string[] = [];
-      const projectName = await getProjectName(api);
+      const projectName = await getProjectName(api, addLog);
       const modelIds = selection.map((item: any) => item.modelId).filter(Boolean);
-      const nameMap = await buildModelNameMap(api, modelIds);
+      const nameMap = await buildModelNameMap(api, modelIds, addLog);
+
       for (const selectionItem of selection) {
         if (!selectionItem.objectRuntimeIds) continue;
+
         const objectRuntimeIds = selectionItem.objectRuntimeIds
           .map((id: any) => (typeof id === "string" ? parseInt(id) : id))
           .filter((n: number) => Number.isFinite(n));
+
         if (objectRuntimeIds.length === 0) continue;
+
         try {
           const fullProperties = await (api.viewer as any).getObjectProperties?.(
             selectionItem as any,
             objectRuntimeIds,
             { includeHidden: true }
           );
+
           if (!fullProperties) {
             addLog(`No properties for model ${selectionItem.modelId}`, "warn");
             continue;
           }
+
           for (let idx = 0; idx < objectRuntimeIds.length; idx++) {
             const props = Array.isArray(fullProperties) ? fullProperties[idx] : fullProperties;
             if (!props) continue;
-            const flattened = await flattenProps(props, selectionItem.modelId || "", projectName, nameMap, api);
-            const values = orderedFields.map((fieldName) => flattened[fieldName] || "").filter((v) => v.length > 0);
+
+            const flattened = await flattenProps(
+              props,
+              selectionItem.modelId || "",
+              projectName,
+              nameMap,
+              api,
+              addLog
+            );
+            const values = orderedFields
+              .map((fieldName) => flattened[fieldName] || "")
+              .filter((v) => v.length > 0);
+
             if (values.length === 0) continue;
+
             const separator = useLineBreak ? "\n" : markupSeparator;
             const markupText = markupPrefix + values.join(separator);
+
             try {
-              const markupId = await (api.markup as any).add({ label: markupText, objectId: objectRuntimeIds[idx] });
+              const markupId = await (api.markup as any).add({
+                label: markupText,
+                objectId: objectRuntimeIds[idx],
+              });
+
               if (markupId) {
                 newMarkupIds.push(markupId);
                 results.push({ text: markupText, count: 1 });
-                addLog(`✅ Markup added: ${markupText.substring(0, 50)}...`, "debug");
+                addLog(`✅ Markup added: ${markupText}`, "debug");
               }
             } catch (err: any) {
               addLog(`Failed to add markup: ${err.message}`, "error");
@@ -569,6 +680,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           continue;
         }
       }
+
       previousMarkupIds.current = newMarkupIds;
       setMarkupResults(results);
       if (results.length > 0) {
@@ -587,11 +699,13 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
       setIsApplying(false);
     }
   }, [api, orderedFields, useLineBreak, markupSeparator, markupPrefix, t, addLog]);
+
   const condenseAndCopy = useCallback(() => {
     if (markupResults.length === 0) {
       setDiscoveryError("Tulemusi pole");
       return;
     }
+
     const condensed = markupResults.reduce(
       (acc, result) => {
         const existing = acc.find((r) => r.text === result.text);
@@ -604,18 +718,22 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
       },
       [] as MarkupResult[]
     );
+
     const text = condensed.map((r) => `${r.text} - ${r.count}tk`).join("\n");
+
     navigator.clipboard.writeText(text).then(() => {
       setSuccessMessage("✅ Kopeeritud lõikelauale!");
       addLog("Results copied to clipboard", "info");
       setTimeout(() => setSuccessMessage(""), 3000);
     });
   }, [markupResults, addLog]);
+
   const clearLogs = useCallback(() => {
     debugLogger.clear();
     setLogs([]);
     addLog("Logs cleared", "info");
   }, [addLog]);
+
   const copyLogs = useCallback(() => {
     const logText = debugLogger.export();
     navigator.clipboard.writeText(logText).then(() => {
@@ -623,11 +741,14 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
       setTimeout(() => setSuccessMessage(""), 2000);
     });
   }, []);
+
   const downloadLogs = useCallback(() => {
     debugLogger.downloadAsFile();
     addLog("Logs downloaded", "info");
   }, [addLog]);
+
   const selectedCount = orderedFields.length;
+
   return (
     <div className="amb-container">
       <div className="amb-header">
@@ -636,6 +757,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           {t.version} {VERSION}
         </span>
       </div>
+
       {/* TAB NAVIGATION */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", borderBottom: "1px solid #ccc" }}>
         <button
@@ -667,6 +789,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           {t.debug}
         </button>
       </div>
+
       {/* MARKUP TAB */}
       {tab === "markup" && (
         <>
@@ -674,7 +797,9 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
             <button className="amb-button amb-button-primary" onClick={discoverFields} disabled={isDiscovering}>
               {isDiscovering ? t.discovering : t.discoverFields}
             </button>
+
             {discoveryError && <div className="amb-error">{discoveryError}</div>}
+
             {Object.keys(discoveredFields).length > 0 && (
               <div className="amb-fields">
                 <label className="amb-label">
@@ -708,6 +833,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
               </div>
             )}
           </div>
+
           {selectedCount > 0 && (
             <div className="amb-section">
               <div className="amb-setting">
@@ -720,6 +846,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                   className="amb-input"
                 />
               </div>
+
               <div className="amb-setting">
                 <label>{t.separator}</label>
                 <select
@@ -735,6 +862,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                   ))}
                 </select>
               </div>
+
               <div className="amb-setting">
                 <label className="amb-checkbox-label">
                   <input
@@ -746,11 +874,13 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                   <span>{t.useLineBreak}</span>
                 </label>
               </div>
+
               <button className="amb-button amb-button-success" onClick={applyMarkup} disabled={isApplying || selectedCount === 0}>
                 {isApplying ? t.applying : t.applyMarkup}
               </button>
             </div>
           )}
+
           {markupResults.length > 0 && (
             <div className="amb-section">
               <div className="amb-results-header">
@@ -759,6 +889,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                   {t.condenseResults}
                 </button>
               </div>
+
               <div className="amb-results-list">
                 {markupResults.map((result, idx) => (
                   <div key={idx} className="amb-result-item">
@@ -769,10 +900,12 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
               </div>
             </div>
           )}
+
           {successMessage && <div className="amb-success">{successMessage}</div>}
         </>
       )}
-      {/* DEBUG TAB (sama kui sinul) */}
+
+      {/* DEBUG TAB */}
       {tab === "debug" && (
         <div className="amb-section">
           <div style={{ display: "flex", gap: "8px", marginBottom: "12px", flexWrap: "wrap" }}>
@@ -786,6 +919,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
               🗑️ {t.clearLogs}
             </button>
           </div>
+
           <div className="amb-setting">
             <label>{t.logLevel}</label>
             <select value={logFilter} onChange={(e) => setLogFilter(e.target.value as any)} className="amb-select">
@@ -795,6 +929,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
               <option value="error">{t.errorsOnly}</option>
             </select>
           </div>
+
           <div
             style={{
               border: "1px solid #ccc",
@@ -815,7 +950,14 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                 <div
                   key={idx}
                   style={{
-                    color: log.level === "error" ? "#ff4444" : log.level === "warn" ? "#ffaa00" : log.level === "debug" ? "#4488ff" : "#00ff00",
+                    color:
+                      log.level === "error"
+                        ? "#ff4444"
+                        : log.level === "warn"
+                          ? "#ffaa00"
+                          : log.level === "debug"
+                            ? "#4488ff"
+                            : "#00ff00",
                     marginBottom: "4px",
                     fontFamily: "Courier New, monospace",
                   }}
@@ -825,14 +967,16 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
               ))
             )}
           </div>
+
           <div style={{ marginTop: "12px", fontSize: "11px", opacity: 0.7 }}>
             💡 {t.debugLogs} - {logs.length} entries | Copy to share with developer
           </div>
         </div>
       )}
+
       {/* FOOTER */}
       <div style={{ marginTop: "12px", fontSize: "10px", opacity: 0.4, textAlign: "center", borderTop: "1px solid #eee", paddingTop: "8px" }}>
-        AdvancedMarkupBuilder v{VERSION} | Trimble Connect
+        AdvancedMarkupBuilder v{VERSION} | Full Assembly Exporter integration with async fallbacks
       </div>
     </div>
   );
