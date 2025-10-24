@@ -1,5 +1,6 @@
 // ============================================
-// ADVANCED MARKUP BUILDER - LÕPLIK FIX (Üks fail, ilma import-veadeta)
+// ADVANCED MARKUP BUILDER - VÄRSE KOOD (2025-10-24)
+// Üks fail: Hook + Komponendid + Integratsioon + Veafix'id
 // ============================================
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,7 +26,7 @@ interface ExportTabProps {
 }
 
 // ====================
-// TÕLKED
+// TÕLKED (Bilingual ET/EN)
 // ====================
 const translations = {
   et: {
@@ -93,7 +94,7 @@ const translations = {
 const t = (key: string, language: "et" | "en") => translations[language][key as keyof typeof translations.et];
 
 // ====================
-// HELPERID (Veafix: any assertion)
+// HELPER FUNKTSIOONID (Veafix: any assertion for modelId ja properties)
 // ====================
 interface Vector3 { x: number; y: number; z: number; }
 interface Box3 { min: Vector3; max: Vector3; }
@@ -134,7 +135,7 @@ async function getPropertyValue(
 }
 
 // ====================
-// HOOK
+// CUSTOM HOOK: useMarkupFieldDiscovery
 // ====================
 function useMarkupFieldDiscovery(objects: ObjectProperties[]) {
   const [fields, setFields] = useState<DiscoveredField[]>([]);
@@ -206,7 +207,7 @@ function useMarkupFieldDiscovery(objects: ObjectProperties[]) {
 }
 
 // ====================
-// KOMPONENTID (Kõik siin, ilma import'ideta)
+// KOMPONENT: MarkupFieldDiscovery
 // ====================
 function MarkupFieldDiscovery({ fields, isLoading, language }: { fields: DiscoveredField[]; isLoading: boolean; language: "et" | "en"; }) {
   if (isLoading) {
@@ -223,7 +224,12 @@ function MarkupFieldDiscovery({ fields, isLoading, language }: { fields: Discove
         <div key={`${field.setName}|${field.propertyName}`} style={styles.fieldItem}>
           <div style={styles.fieldHeader}>
             <span style={styles.fieldName}>{field.displayName}</span>
-            <span style={{ ...styles.frequencyBadge, background: field.frequency >= 80 ? "#4caf50" : field.frequency >= 50 ? "#ff9800" : "#f44336" }}>
+            <span 
+              style={{
+                ...styles.frequencyBadge,
+                background: field.frequency >= 80 ? "#4caf50" : field.frequency >= 50 ? "#ff9800" : "#f44336",
+              }}
+            >
               {field.frequency}%
             </span>
           </div>
@@ -231,12 +237,16 @@ function MarkupFieldDiscovery({ fields, isLoading, language }: { fields: Discove
             <div style={styles.samplesRow}>
               <span style={styles.sampleLabel}>{t("samples", language)}:</span>
               <div style={styles.samples}>
-                {field.valueSamples.map((sample, i) => <span key={i} style={styles.sample}>{sample}</span>)}
+                {field.valueSamples.map((sample, i) => (
+                  <span key={i} style={styles.sample}>{sample}</span>
+                ))}
               </div>
             </div>
           )}
           <div style={styles.statsRow}>
-            <span style={styles.stat}>{t("totalObjects", language)}: {field.objectsWithValue}/{fields.length}</span>
+            <span style={styles.stat}>
+              {t("totalObjects", language)}: {field.objectsWithValue}/{fields.length}
+            </span>
           </div>
         </div>
       ))}
@@ -244,6 +254,9 @@ function MarkupFieldDiscovery({ fields, isLoading, language }: { fields: Discove
   );
 }
 
+// ====================
+// KOMPONENT: MarkupFieldSelector (Veafix: setMarkupPosition kasutatakse useEffect-is)
+// ====================
 function MarkupFieldSelector({
   discoveredFields,
   onSelectionChange,
@@ -264,8 +277,11 @@ function MarkupFieldSelector({
   const handleToggleField = useCallback((setName: string, propertyName: string) => {
     const key = `${setName}|${propertyName}`;
     const newSet = new Set(selectedSet);
-    if (newSet.has(key)) newSet.delete(key);
-    else newSet.add(key);
+    if (newSet.has(key)) {
+      newSet.delete(key);
+    } else {
+      newSet.add(key);
+    }
     setSelectedSet(newSet);
     const selected = discoveredFields.filter((f) => newSet.has(`${f.setName}|${f.propertyName}`));
     onSelectionChange(selected);
@@ -282,20 +298,32 @@ function MarkupFieldSelector({
     onSelectionChange([]);
   }, [onSelectionChange]);
 
-  const previewText = Array.from(selectedSet).slice(0, 3).map((key) => {
-    const [setName, propName] = key.split("|");
-    const field = discoveredFields.find((f) => f.setName === setName && f.propertyName === propName);
-    return field?.valueSamples[0] || "N/A";
-  }).join(separator === "comma" ? ", " : "\n");
+  const previewText = Array.from(selectedSet)
+    .slice(0, 3)
+    .map((key) => {
+      const [setName, propName] = key.split("|");
+      const field = discoveredFields.find((f) => f.setName === setName && f.propertyName === propName);
+      return field?.valueSamples[0] || "N/A";
+    })
+    .join(separator === "comma" ? ", " : "\n");
 
-  useEffect(() => onSeparatorChange(separator), [separator, onSeparatorChange]);
-  useEffect(() => onPositionChange(position), [position, onPositionChange]);
+  useEffect(() => {
+    onSeparatorChange(separator);
+  }, [separator, onSeparatorChange]);
+
+  useEffect(() => {
+    onPositionChange(position);  // Veafix: Kasutatakse
+  }, [position, onPositionChange]);
 
   return (
     <div style={styles.selectorContainer}>
       <div style={styles.controlsRow}>
-        <button onClick={handleSelectAll} style={styles.smallBtn} title={t("selectAll", language)}>✓ {t("selectAll", language)}</button>
-        <button onClick={handleDeselectAll} style={styles.smallBtn} title={t("deselectAll", language)}>✕ {t("deselectAll", language)}</button>
+        <button onClick={handleSelectAll} style={styles.smallBtn} title={t("selectAll", language)}>
+          ✓ {t("selectAll", language)}
+        </button>
+        <button onClick={handleDeselectAll} style={styles.smallBtn} title={t("deselectAll", language)}>
+          ✕ {t("deselectAll", language)}
+        </button>
       </div>
       <div style={styles.selectorFieldsList}>
         {discoveredFields.map((field) => {
@@ -303,9 +331,22 @@ function MarkupFieldSelector({
           const isSelected = selectedSet.has(key);
           return (
             <label key={key} style={styles.checkRow}>
-              <input type="checkbox" checked={isSelected} onChange={() => handleToggleField(field.setName, field.propertyName)} style={styles.checkbox} />
+              <input
+                type="checkbox"
+                checked={isSelected}
+                onChange={() => handleToggleField(field.setName, field.propertyName)}
+                style={styles.checkbox}
+              />
               <span style={styles.checkLabel}>{field.displayName}</span>
-              <span style={{ ...styles.frequencyBadge, background: isSelected ? "#0a3a67" : "#f0f0f0", color: isSelected ? "#fff" : "#666" }}>{field.frequency}%</span>
+              <span
+                style={{
+                  ...styles.frequencyBadge,
+                  background: isSelected ? "#0a3a67" : "#f0f0f0",
+                  color: isSelected ? "#fff" : "#666",
+                }}
+              >
+                {field.frequency}%
+              </span>
             </label>
           );
         })}
@@ -313,14 +354,22 @@ function MarkupFieldSelector({
       <div style={styles.configSection}>
         <div style={styles.configRow}>
           <label style={styles.configLabel}>{t("separator", language)}</label>
-          <select value={separator} onChange={(e) => setSeparator(e.target.value as "comma" | "newline")} style={styles.select}>
+          <select
+            value={separator}
+            onChange={(e) => setSeparator(e.target.value as "comma" | "newline")}
+            style={styles.select}
+          >
             <option value="comma">{t("comma", language)} (", ")</option>
             <option value="newline">{t("newline", language)} ("⏎")</option>
           </select>
         </div>
         <div style={styles.configRow}>
           <label style={styles.configLabel}>{t("position", language)}</label>
-          <select value={position} onChange={(e) => setPosition(e.target.value as "center" | "top")} style={styles.select}>
+          <select
+            value={position}
+            onChange={(e) => setPosition(e.target.value as "center" | "top")}
+            style={styles.select}
+          >
             <option value="center">{t("center", language)}</option>
             <option value="top">{t("top", language)}</option>
           </select>
@@ -336,6 +385,9 @@ function MarkupFieldSelector({
   );
 }
 
+// ====================
+// KOMPONENT: MarkupBuilder (Veafix: position ja markupIds kasutatakse)
+// ====================
 function MarkupBuilder({
   api,
   selectedObjects,
@@ -358,7 +410,12 @@ function MarkupBuilder({
   const [isApplying, setIsApplying] = useState(false);
 
   const handleApplyMarkup = useCallback(async () => {
-    if (!selectedObjects?.length || !selectedFields?.length) {
+    if (!selectedObjects || selectedObjects.length === 0) {
+      onError(t("noSelection", language));
+      return;
+    }
+
+    if (!selectedFields || selectedFields.length === 0) {
       onError(t("noSelection", language));
       return;
     }
@@ -370,11 +427,11 @@ function MarkupBuilder({
       const separatorStr = separator === "comma" ? ", " : "\n";
 
       for (const obj of selectedObjects) {
-        const modelId = (obj as any).modelId;
+        const modelId = (obj as any).modelId;  // Veafix: assertion
         if (!modelId) continue;
 
         const bBoxes = await api.viewer.getObjectBoundingBoxes(modelId, [obj.id]);
-        if (!bBoxes?.length) continue;
+        if (!bBoxes || bBoxes.length === 0) continue;
 
         const bBox = bBoxes[0].boundingBox;
         const midPoint = getMidPoint(bBox);
@@ -387,11 +444,19 @@ function MarkupBuilder({
 
         if (values.length > 0) {
           const markupText = values.join(separatorStr);
-          const yOffset = position === "top" ? 500 : 0;
+          const yOffset = position === "top" ? 500 : 0;  // Veafix: Kasuta position-it
           const markup: TextMarkup = {
             text: markupText,
-            start: { positionX: midPoint.x * 1000, positionY: (midPoint.y * 1000) + yOffset, positionZ: midPoint.z * 1000 },
-            end: { positionX: midPoint.x * 1000, positionY: (midPoint.y * 1000) + yOffset, positionZ: midPoint.z * 1000 },
+            start: {
+              positionX: midPoint.x * 1000,
+              positionY: (midPoint.y * 1000) + yOffset,
+              positionZ: midPoint.z * 1000,
+            },
+            end: {
+              positionX: midPoint.x * 1000,
+              positionY: (midPoint.y * 1000) + yOffset,
+              positionZ: midPoint.z * 1000,
+            },
           };
           markups.push(markup);
         }
@@ -399,8 +464,11 @@ function MarkupBuilder({
 
       if (markups.length > 0) {
         const result = await api.markup.addTextMarkup(markups);
-        const markupIds = result.map((m) => m.id as number);
-        onComplete(markupIds, t("success", language).replace("{count}", String(markupIds.length)));
+        const markupIds = result.map((m) => m.id as number);  // Veafix: Kasutatakse
+        onComplete(
+          markupIds,
+          t("success", language).replace("{count}", String(markupIds.length))
+        );
       } else {
         onError(t("noSelection", language));
       }
@@ -416,8 +484,12 @@ function MarkupBuilder({
     <div style={styles.builderContainer}>
       <button
         onClick={handleApplyMarkup}
-        disabled={isApplying || !selectedFields.length}
-        style={{ ...styles.applyBtn, opacity: isApplying || !selectedFields.length ? 0.5 : 1, cursor: isApplying || !selectedFields.length ? "not-allowed" : "pointer" }}
+        disabled={isApplying || selectedFields.length === 0}
+        style={{
+          ...styles.applyBtn,
+          opacity: isApplying || selectedFields.length === 0 ? 0.5 : 1,
+          cursor: isApplying || selectedFields.length === 0 ? "not-allowed" : "pointer",
+        }}
       >
         {isApplying ? t("applying", language) : t("apply", language)}
       </button>
@@ -427,62 +499,97 @@ function MarkupBuilder({
 }
 
 // ====================
-// PEAMINE KOMPONENT
+// PEAMINE KOMPONENT: AdvancedMarkupBuilder (Veafix: setMarkupPosition kasutatakse)
 // ====================
 export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: ExportTabProps) {
   const [showMarkupBuilder, setShowMarkupBuilder] = useState(false);
   const [selectedMarkupFields, setSelectedMarkupFields] = useState<DiscoveredField[]>([]);
   const [markupSeparator, setMarkupSeparator] = useState<"comma" | "newline">("comma");
-  const [markupPosition, setMarkupPosition] = useState<"center" | "top">("center");
+  const [markupPosition, setMarkupPosition] = useState<"center" | "top">("center");  // Veafix: Kasutatakse onPositionChange-is
 
   const { fields: discoveredFields, isLoading } = useMarkupFieldDiscovery(exportData);
 
   const handleToggleMarkupBuilder = useCallback(() => {
     setShowMarkupBuilder(!showMarkupBuilder);
-    if (!showMarkupBuilder && !exportData.length) addLog(t("noExportData", language));
+    if (!showMarkupBuilder && exportData.length === 0) {
+      addLog(t("noExportData", language));
+    }
   }, [showMarkupBuilder, exportData, language, addLog]);
 
-  const handleMarkupComplete = useCallback((markupIds: number[], message: string) => {
+  const handleMarkupComplete = useCallback((markupIds: number[], message: string) => {  // Veafix: Kasutatakse markupIds
     addLog(message);
-    console.log("Markup ID-d:", markupIds);  // Kasutatakse
+    console.log("Lisatud markup ID-d:", markupIds);  // Nt. salvestamiseks
   }, [addLog]);
 
-  const handleMarkupError = useCallback((errorMessage: string) => addLog(errorMessage), [addLog]);
+  const handleMarkupError = useCallback((errorMessage: string) => {
+    addLog(errorMessage);
+  }, [addLog]);
 
   return (
     <div style={styles.container}>
+      {/* Olemasolev export loogika (näide) */}
       <div style={styles.section}>
-        <button style={styles.btn} onClick={() => addLog("📊 Uuendamine käivitas...")}>🔄 {t("refreshData", language)}</button>
+        <button style={styles.btn} onClick={() => addLog("📊 Uuendamine käivitas...")}>
+          🔄 {t("refreshData", language)}
+        </button>
       </div>
       <div style={styles.section}>
         <label style={styles.labelTop}>{language === "et" ? "Veerud:" : "Columns:"}</label>
         <div style={styles.columnsList}>
-          <span style={styles.placeholder}>{language === "et" ? "Siin oleks veergude selector..." : "Your column selector here..."}</span>
+          <span style={styles.placeholder}>
+            {language === "et" ? "Siin oleks veergude selector..." : "Your column selector here..."}
+          </span>
         </div>
       </div>
 
       <div style={styles.divider} />
 
-      <button style={styles.markupToggleBtn} onClick={handleToggleMarkupBuilder} disabled={!exportData.length}>
-        {showMarkupBuilder ? "🔽" : "▶️"} {t("markupBuilder", language)} <span style={styles.badge}>{selectedMarkupFields.length}</span>
+      {/* UUS: Markup Builder */}
+      <button
+        style={styles.markupToggleBtn}
+        onClick={handleToggleMarkupBuilder}
+        disabled={exportData.length === 0}
+      >
+        {showMarkupBuilder ? "🔽" : "▶️"} {t("markupBuilder", language)}
+        <span style={styles.badge}>{selectedMarkupFields.length}</span>
       </button>
 
       {showMarkupBuilder && exportData.length > 0 && (
         <div style={styles.markupPanel}>
+          {/* Step 1: Väljad */}
           <div style={styles.step}>
             <h4 style={styles.stepTitle}>{t("step1Fields", language)}</h4>
             <MarkupFieldDiscovery fields={discoveredFields} isLoading={isLoading} language={language} />
           </div>
+
+          {/* Step 2: Valik */}
           {discoveredFields.length > 0 && (
             <div style={styles.step}>
               <h4 style={styles.stepTitle}>{t("step2Selection", language)}</h4>
-              <MarkupFieldSelector discoveredFields={discoveredFields} onSelectionChange={setSelectedMarkupFields} language={language} onSeparatorChange={setMarkupSeparator} onPositionChange={setMarkupPosition} />
+              <MarkupFieldSelector
+                discoveredFields={discoveredFields}
+                onSelectionChange={setSelectedMarkupFields}
+                language={language}
+                onSeparatorChange={setMarkupSeparator}
+                onPositionChange={setMarkupPosition}  // Veafix: Kasutatakse
+              />
             </div>
           )}
+
+          {/* Step 3: Rakenda */}
           {selectedMarkupFields.length > 0 && (
             <div style={styles.step}>
               <h4 style={styles.stepTitle}>{t("step3Apply", language)}</h4>
-              <MarkupBuilder api={api} selectedObjects={exportData} selectedFields={selectedMarkupFields} separator={markupSeparator} position={markupPosition} onComplete={handleMarkupComplete} onError={handleMarkupError} language={language} />
+              <MarkupBuilder
+                api={api}
+                selectedObjects={exportData}
+                selectedFields={selectedMarkupFields}
+                separator={markupSeparator}
+                position={markupPosition}
+                onComplete={handleMarkupComplete}
+                onError={handleMarkupError}
+                language={language}
+              />
             </div>
           )}
         </div>
@@ -490,6 +597,7 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
 
       <div style={styles.divider} />
 
+      {/* Olemasolev export nupud (näide) */}
       <div style={styles.section}>
         <button style={{ ...styles.btn, background: "#1E88E5" }}>📋 {language === "et" ? "Clipboard" : "Clipboard"}</button>
         <button style={{ ...styles.btn, background: "#4CAF50" }}>📄 CSV</button>
@@ -500,7 +608,7 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
 }
 
 // ====================
-// STIILE (Veafix: Kõik unikaalsed, lõplik)
+// STIILE (Veafix: Kõik unikaalsed, dubleerid eemaldatud)
 // ====================
 const styles: Record<string, React.CSSProperties> = {
   container: { display: "flex", flexDirection: "column", gap: 12, padding: 12, background: "#fff", borderRadius: 6 },
@@ -515,6 +623,7 @@ const styles: Record<string, React.CSSProperties> = {
   step: { display: "flex", flexDirection: "column", gap: 8, padding: 8, border: "1px solid #e6eaf0", borderRadius: 4, background: "#fff" },
   stepTitle: { fontSize: 12, fontWeight: 600, margin: 0, marginBottom: 4, color: "#0a3a67" },
   btn: { padding: "8px 12px", fontSize: 11, fontWeight: 500, background: "#0a3a67", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" },
+  // Discovery
   discoveryLoadingText: { fontSize: 11, opacity: 0.7, marginTop: 4, marginBottom: 4 },
   emptyText: { fontSize: 11, opacity: 0.7, padding: "8px", color: "#f44336", marginTop: 4, marginBottom: 4 },
   discoveryFieldsList: { display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflow: "auto", border: "1px solid #e6eaf0", borderRadius: 6, padding: 8 },
@@ -528,6 +637,7 @@ const styles: Record<string, React.CSSProperties> = {
   sample: { background: "#e7f3ff", padding: "2px 6px", borderRadius: 3, fontSize: 9, fontFamily: "monospace", color: "#0a3a67" },
   statsRow: { display: "flex", gap: 8, fontSize: 9, opacity: 0.7 },
   stat: { whiteSpace: "nowrap" },
+  // Selector
   selectorContainer: { display: "flex", flexDirection: "column", gap: 8 },
   controlsRow: { display: "flex", gap: 4 },
   smallBtn: { padding: "4px 8px", fontSize: 10, border: "1px solid #cfd6df", borderRadius: 4, background: "#fff", cursor: "pointer", flex: 1 },
@@ -542,6 +652,7 @@ const styles: Record<string, React.CSSProperties> = {
   preview: { display: "flex", flexDirection: "column", gap: 4, padding: 8, border: "1px solid #cfd6df", borderRadius: 6, background: "#f6f8fb" },
   previewLabel: { fontSize: 10, fontWeight: 500, opacity: 0.7 },
   previewBox: { fontSize: 10, fontFamily: "monospace", padding: 6, border: "1px solid #cfd6df", borderRadius: 4, background: "#fff", minHeight: 32, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "#0a3a67" },
+  // Builder
   builderContainer: { display: "flex", flexDirection: "column", gap: 6, padding: 8 },
   applyBtn: { padding: "8px 12px", borderRadius: 6, border: "none", background: "#ff9800", color: "#fff", fontWeight: 500, fontSize: 11, cursor: "pointer" },
   builderLoadingText: { fontSize: 10, opacity: 0.7, textAlign: "center" },
