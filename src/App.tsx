@@ -1,29 +1,35 @@
-import { useEffect, useState } from 'react'
-import * as WorkspaceAPI from "trimble-connect-workspace-api"
-import SectionPlanesCreator from './components/SectionPlanesCreator'
-import MarkupAnnotations from './components/MarkupAnnotations'
-import ElementSearch from './components/ElementSearch'
-import AdvancedMarkupBuilder from './components/AdvancedMarkupBuilder'
+import { useCallback, useEffect, useState } from 'react';
+import * as WorkspaceAPI from "trimble-connect-workspace-api";
+import type { ObjectProperties } from "trimble-connect-workspace-api";  // ← Lisa tüüp
+import SectionPlanesCreator from './components/SectionPlanesCreator';
+import MarkupAnnotations from './components/MarkupAnnotations';
+import ElementSearch from './components/ElementSearch';
+import AdvancedMarkupBuilder from './components/AdvancedMarkupBuilder';
 import '@trimbleinc/modus-bootstrap/dist/modus.min.css';
 import '@trimble-oss/modus-icons/dist/modus-outlined/fonts/modus-icons.css';
-import './App.css'
+import './App.css';
 
 type Language = "et" | "en";
 
 function App() {
-  const [tcApi, setTcApi] = useState<WorkspaceAPI.WorkspaceAPI>()
-  const [language, setLanguage] = useState<Language>("et")
+  const [tcApi, setTcApi] = useState<WorkspaceAPI.WorkspaceAPI>();
+  const [language, setLanguage] = useState<Language>("et");
+  const [exportData, setExportData] = useState<ObjectProperties[]>([]);  // ← Lisa state valitud objektidele (täida ElementSearch-is)
+
+  // ← Lisa logger funktsioon (kasuta console.log, vaheta hiljem toast'i vastu)
+  const addLog = useCallback((message: string) => {
+    console.log(message);  // Nt. "✅ Markup rakendatud!"
+    // Hiljem: toast.success(message); kui lisad react-toastify
+  }, []);
 
   useEffect(() => {
     async function connectWithTcAPI() {
       const api = await WorkspaceAPI.connect(window.parent, (_event: any, _data: any) => {
         console.log("Event:", _event, _data);
       });
-
       setTcApi(api);
       console.log("Connected to Trimble Connect API");
     }
-
     connectWithTcAPI().catch(console.error);
   }, []);
 
@@ -43,7 +49,13 @@ function App() {
 
       <div className='components-grid'>
         <section className='component-section'>
-          <AdvancedMarkupBuilder api={tcApi as WorkspaceAPI.WorkspaceAPI} language={language} />
+          {/* ← Lisa exportData ja addLog props'id */}
+          <AdvancedMarkupBuilder 
+            api={tcApi as WorkspaceAPI.WorkspaceAPI} 
+            exportData={exportData} 
+            language={language} 
+            addLog={addLog} 
+          />
         </section>
 
         <section className='component-section'>
@@ -59,7 +71,7 @@ function App() {
         </section>
       </div>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
