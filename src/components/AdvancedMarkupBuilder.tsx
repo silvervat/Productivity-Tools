@@ -2,7 +2,7 @@ import { useRef, useState, useCallback } from "react";
 import * as WorkspaceAPI from "trimble-connect-workspace-api";
 import "./AdvancedMarkupBuilder.css";
 
-const VERSION = "3.0.1-diag-uda"; // Assembly Exporter + detailed diagnostics + Tekla UDA fallback
+const VERSION = "3.0.1-diag"; // Assembly Exporter + detailed diagnostics
 
 type Language = "et" | "en";
 type Tab = "markup" | "debug";
@@ -171,6 +171,7 @@ function classifyGuid(val: string): "IFC" | "MS" | "UNKNOWN" {
 }
 
 // Assembly Exporter async fallback functions
+
 async function getPresentationLayerString(api: any, modelId: string, runtimeId: number, addLog?: Function): Promise<string> {
   try {
     const layers = (await api?.viewer?.getObjectLayers?.(modelId, [runtimeId])) ?? (await api?.viewer?.getPresentationLayers?.(modelId, [runtimeId]));
@@ -267,7 +268,7 @@ async function buildModelNameMap(api: any, modelIds: string[], addLog?: Function
   return map;
 }
 
-// TÄIELIK flattenProps - Assembly Exporter koopia + Tekla UDA fallback!
+// TÄIELIK flattenProps - Assembly Exporter koopia!
 async function flattenProps(
   obj: any,
   modelId: string,
@@ -276,14 +277,7 @@ async function flattenProps(
   api: any,
   addLog?: Function
 ): Promise<Record<string, string>> {
-  addLog?.(`\n🔍 flattenProps START: obj.id=${obj?.id}, has properties=${!!obj?.properties}, has attributes=${!!obj?.attributes}`, "debug");
-  
-  // LOGI TÄIELIK OBJ STRUKTUUR (lühidatult, et näha peidetud UDAsid)
-  const objKeys = Object.keys(obj || {});
-  addLog?.(`Obj keys: ${objKeys.slice(0, 10).join(", ")}${objKeys.length > 10 ? "..." : ""}`, "debug");
-  if (obj?.attributes) {
-    addLog?.(`Attributes sample: ${Object.entries(obj.attributes).slice(0, 3).map(([k,v]) => `${k}:${String(v).substring(0,20)}`).join(", ")}`, "debug");
-  }
+  addLog?.(`\n🔍 flattenProps START: obj.id=${obj?.id}, has properties=${!!obj?.properties}`, "debug");
   
   const out: Record<string, string> = {
     GUID: "",
@@ -314,7 +308,7 @@ async function flattenProps(
     out[key] = s;
   };
 
-  // Property sets (standard)
+  // Property sets
   if (Array.isArray(obj?.properties)) {
     addLog?.(`✅ Properties array found: ${obj.properties.length} sets`, "debug");
     obj.properties.forEach((propSet: any) => {
@@ -331,23 +325,14 @@ async function flattenProps(
       }
     });
   } else if (typeof obj?.properties === "object" && obj.properties !== null) {
-    addLog?.(`Properties is object (not array): ${Object.keys(obj.properties).length} keys`, "debug");
-    Object.entries(obj.properties).forEach(([key, val]) => push("Properties", key, val));
+    const keys = Object.keys(obj.properties);
+    addLog?.(`✅ FLAT OBJECT (Tekla UDAs): ${keys.length} entries`, "debug");
+    Object.entries(obj.properties).forEach(([key, val]) => {
+      push("Properties", key, val);
+      addLog?.(`    ${key} = ${String(val).substring(0, 50)}`, "debug");
+    });
   } else {
     addLog?.(`⚠️ NO PROPERTIES! type=${typeof obj?.properties}, value=${obj?.properties}`, "warn");
-  }
-
-  // UUS: Tekla UDA fallback - proovi attributes (sageli UDAsid nagu CAST_UNIT.MARK seal)
-  if (obj?.attributes && typeof obj.attributes === "object") {
-    addLog?.(`✅ Found attributes object: ${Object.keys(obj.attributes).length} keys`, "debug");
-    Object.entries(obj.attributes).forEach(([key, val]) => {
-      push("UDA", key, val);  // Grupi "UDA" alla, nt UDA.CAST_UNIT.MARK
-      addLog?.(`    UDA Found: ${key} = ${String(val).substring(0, 40)}`, "debug");
-    });
-  } else if (obj?.userDefined || obj?.udas) {  // Alternatiivsed võtmed
-    const udaSource = obj.userDefined || obj.udas;
-    addLog?.(`✅ Found alternative UDA source (${Object.keys(udaSource).length} keys)`, "debug");
-    Object.entries(udaSource).forEach(([key, val]) => push("UDA", key, val));
   }
 
   // Standard fields
@@ -587,36 +572,39 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
             }
           }
 
-          // MERGE like Assembly Exporter: combine original objects with fetched properties
+          // MERGE - Assembly Exporter pattern: properties võib olla array VÕI object
           let fullObjects = objectsToProcess;
           if (fullProperties) {
-            addLog(`📦 Merging ${objectsToProcess.length} objects with fullProperties...`, "debug");
+            addLog(`📦 Merging ${objectsToProcess.length} objects...`, "debug");
             
             fullObjects = objectsToProcess.map((obj: any, idx: number) => {
+              // Assembly Exporter pattern:
+              // fullProperties[idx]?.properties || obj.properties
+              // See käsitleb kõiki juhtumeid:
+              // - fullProperties on array → fullProperties[idx].properties (IFC/DWG)
+              // - fullProperties on object → fullProperties.properties (kuid see on undefined)
+              // - Tekla flat → properties IS fullProperties[idx]
+              
               let mergedProperties = obj.properties;
               
-              // Case 1: fullProperties is an array (one item per object)
               if (Array.isArray(fullProperties)) {
-                mergedProperties = fullProperties[idx]?.properties || fullProperties[idx] || obj.properties;
-              }
-              // Case 2: fullProperties is single object with properties field (for 1 object)
-              else if (fullProperties?.properties) {
-                mergedProperties = fullProperties.properties;
-              }
-              // Case 3: fullProperties IS the properties (direct)
-              else if (typeof fullProperties === "object") {
-                mergedProperties = fullProperties;
+                // Case 1: Array of objects (multiple objects)
+                mergedProperties = fullProperties[idx]?.properties || fullProperties[idx];
+              } else if (typeof fullProperties === "object") {
+                // Case 2: Single object returned
+                // Try .properties field first (IFC PropertySet[])
+                // If not, use object itself (Tekla flat UDAs)
+                mergedProperties = fullProperties?.properties || fullProperties;
               }
               
-              const merged = {
+              return {
                 ...obj,
-                properties: mergedProperties,
+                properties: mergedProperties || obj.properties,
               };
-              return merged;
             });
             addLog(`✅ Merged ${fullObjects.length} objects`, "debug");
           } else {
-            addLog(`⚠️ No properties returned, using original objects`, "warn");
+            addLog(`⚠️ No properties returned`, "warn");
           }
 
           // Flatten all objects
