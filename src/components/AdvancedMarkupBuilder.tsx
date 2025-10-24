@@ -269,8 +269,6 @@ export default function AdvancedMarkupBuilder({
       for (const selectionItem of selection) {
         if (!selectionItem.objectRuntimeIds) continue;
 
-        const modelId = selectionItem as any;
-
         try {
           const objectRuntimeIds = selectionItem.objectRuntimeIds.map((id: any) =>
             typeof id === 'string' ? parseInt(id) : id
