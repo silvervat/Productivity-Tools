@@ -118,8 +118,6 @@ class Logger {
 
 const logger = new Logger();
 
-// ... (rest of helper functions remain the same: normalizeGuid, classifyGuid, etc.)
-
 export default function AdvancedMarkupBuilder({
   api,
   language = "et",
@@ -206,7 +204,7 @@ export default function AdvancedMarkupBuilder({
                 
                 if (Array.isArray(setProps)) {
                   setProps.forEach((prop: any) => {
-                    const value = prop?.displayValue ?? prop?.value;
+                    const value = (prop?.displayValue ?? prop?.value) || "";
                     const name = prop?.name || "Unknown";
                     const key = `${setName}.${name}`;
                     
