@@ -5,7 +5,12 @@ import "./AdvancedMarkupBuilder.css";
 
 type Language = "et" | "en";
 type MarkupLayout = "inline" | "lines";
-type MarkupResult = { text: string; count: number; status: "found" | "partial" | "notfound" };
+
+interface MarkupResult {
+  text: string;
+  count: number;
+  status: "found" | "partial" | "notfound";
+}
 
 interface PropertyField {
   name: string;
@@ -71,17 +76,18 @@ const SEPARATORS = [
   { label: " . ", value: " . " },
   { label: " : ", value: " : " },
   { label: " / ", value: " / " },
-  { label: " | ", value: " | " },
   { label: "\\n (new line)", value: "\n" },
 ];
+
+interface AdvancedMarkupBuilderProps {
+  api: WorkspaceAPI.WorkspaceAPI | undefined;
+  language?: Language;
+}
 
 export default function AdvancedMarkupBuilder({
   api,
   language = "et",
-}: {
-  api: WorkspaceAPI.WorkspaceAPI | undefined;
-  language?: Language;
-}) {
+}: AdvancedMarkupBuilderProps) {
   const t = translations[language];
   const [discoveredFields, setDiscoveredFields] = useState<{ [key: string]: PropertyField }>({});
   const [isDiscovering, setIsDiscovering] = useState(false);
@@ -235,9 +241,7 @@ export default function AdvancedMarkupBuilder({
 
       previousMarkupIds.current = newMarkupIds;
       setMarkupResults(results);
-      setSuccessMessage(
-        t_format(t.success, { count: results.length })
-      );
+      setSuccessMessage(t_format(t.success, { count: results.length }));
     } catch (err: any) {
       setDiscoveryError(err?.message || "Viga markup'i lisamisel");
     } finally {
@@ -266,9 +270,7 @@ export default function AdvancedMarkupBuilder({
     );
 
     // Kopeeri clipboardi
-    const text = condensed
-      .map((r) => `${r.text} - ${r.count}tk`)
-      .join("\n");
+    const text = condensed.map((r) => `${r.text} - ${r.count}tk`).join("\n");
 
     navigator.clipboard.writeText(text).then(() => {
       setSuccessMessage("✅ Kopeeritud lõikelauale!");
