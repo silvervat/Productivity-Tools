@@ -69,30 +69,38 @@ interface AdvancedMarkupBuilderProps {
   language?: Language;
 }
 
-// Helper function to flatten object properties (inspired by Assembly Exporter)
+// Helper function to flatten object properties - FIXED for property sets
 function flattenObject(obj: any, prefix: string = ""): Record<string, string> {
   const result: Record<string, string> = {};
 
-  function flatten(o: any, p: string) {
-    if (o === null || o === undefined) return;
-    
-    if (Array.isArray(o)) {
-      o.forEach((item, i) => flatten(item, `${p}[${i}]`));
-    } else if (typeof o === "object") {
-      Object.entries(o).forEach(([key, val]) => {
-        const newKey = p ? `${p}.${key}` : key;
-        if (typeof val === "object" && val !== null) {
-          flatten(val, newKey);
-        } else {
-          result[newKey] = String(val || "");
-        }
-      });
-    } else {
-      result[p] = String(o || "");
-    }
+  // Handle property sets array (like Assembly Exporter)
+  if (Array.isArray(obj?.properties)) {
+    obj.properties.forEach((propSet: any) => {
+      const setName = propSet?.name || "Unknown";
+      const setProps = propSet?.properties || [];
+      
+      if (Array.isArray(setProps)) {
+        setProps.forEach((prop: any) => {
+          const value = prop?.displayValue ?? prop?.value;
+          const name = prop?.name || "Unknown";
+          const key = `${setName}.${name}`;
+          if (value !== null && value !== undefined) {
+            result[key] = String(value);
+          }
+        });
+      }
+    });
   }
 
-  flatten(obj, prefix);
+  // Also handle flat properties object
+  if (typeof obj?.properties === "object" && obj.properties !== null && !Array.isArray(obj.properties)) {
+    Object.entries(obj.properties).forEach(([key, val]) => {
+      if (val !== null && val !== undefined) {
+        result[key] = String(val);
+      }
+    });
+  }
+
   return result;
 }
 
