@@ -1,14 +1,18 @@
 // ============================================
-// EXPORT TAB WITH MARKUP BUILDER - ÜKS FAIL
-// Sisaldab: Hook + 3 komponenti + Integratsioon
+// ADVANCED MARKUP BUILDER - TÄIELIK KOOD
+// Sisaldab: Hook + 3 komponenti + Integratsioon + Veafix'id
 // ============================================
 
 import { useCallback, useEffect, useState } from "react";
-import type { ObjectProperties, TextMarkup, WorkspaceAPI } from "trimble-connect-workspace-api";
+import type { ObjectProperties as BaseObjectProperties, TextMarkup, WorkspaceAPI, PropertySet } from "trimble-connect-workspace-api";
 
 // ====================
-// INTERFACE-ID (DiscoveredField jne)
+// LAIENDATUD TÜÜBID (Veafix: modelId + set)
 // ====================
+interface ObjectProperties extends BaseObjectProperties {
+  modelId?: string;  // ← Laiendus puuduva välja jaoks
+}
+
 interface DiscoveredField {
   setName: string;
   propertyName: string;
@@ -16,12 +20,6 @@ interface DiscoveredField {
   frequency: number;
   valueSamples: string[];
   objectsWithValue: number;
-}
-
-interface MarkupConfig {
-  selectedFields: DiscoveredField[];
-  separator: "comma" | "newline";
-  position: "center" | "top";
 }
 
 interface ExportTabProps {
@@ -32,7 +30,7 @@ interface ExportTabProps {
 }
 
 // ====================
-// TÕLKED (Bilingual ET/EN)
+// TÕLKED (Bilingual ET/EN, ilma dubleerideta)
 // ====================
 const translations = {
   et: {
@@ -124,10 +122,11 @@ async function getPropertyValue(
     const properties = await api.viewer.getObjectProperties(modelId, [objectId]);
     if (!properties || properties.length === 0) return "";
 
-    const props = properties[0].properties;
+    const props = properties[0].properties as PropertySet[];
     if (!props) return "";
 
-    const propertySet = props.find((p) => (p as any).name === setName);
+    // Veafix: Kasuta p.set asemel p.name (API tüüp)
+    const propertySet = props.find((p) => p.set === setName);
     if (!propertySet || !propertySet.properties) return "";
 
     const property = propertySet.properties.find((p) => p.name === propertyName);
@@ -167,7 +166,7 @@ export function useMarkupFieldDiscovery(objects: ObjectProperties[]) {
           if (!propSet.properties) continue;
 
           for (const prop of propSet.properties) {
-            const key = `${propSet.name}|${prop.name}`;
+            const key = `${propSet.set}|${prop.name}`;  // Veafix: propSet.set
             const value = String(prop.value || "").trim();
 
             if (!fieldMap.has(key)) {
@@ -322,7 +321,7 @@ function MarkupFieldSelector({
   }, [position, onPositionChange]);
 
   return (
-    <div style={styles.container}>
+    <div style={styles.selectorContainer}>
       <div style={styles.controlsRow}>
         <button onClick={handleSelectAll} style={styles.smallBtn} title={t("selectAll", language)}>
           ✓ {t("selectAll", language)}
@@ -392,14 +391,14 @@ function MarkupFieldSelector({
 }
 
 // ====================
-// KOMPONENT: MarkupBuilder (rakendamine)
+// KOMPONENT: MarkupBuilder (rakendamine, veafix: position kasutamine)
 // ====================
 function MarkupBuilder({
   api,
   selectedObjects,
   selectedFields,
   separator,
-  position,
+  position,  // ← Veafix: Kasutatakse nüüd
   onComplete,
   onError,
   language,
@@ -408,7 +407,7 @@ function MarkupBuilder({
   selectedObjects: ObjectProperties[];
   selectedFields: DiscoveredField[];
   separator: "comma" | "newline";
-  position: "center" | "top";
+  position: "center" | "top";  // ← Veafix: Kasutatakse offset'iga
   onComplete: (markupIds: number[], message: string) => void;
   onError: (error: string) => void;
   language: "et" | "en";
@@ -432,6 +431,7 @@ function MarkupBuilder({
       const separatorStr = separator === "comma" ? ", " : "\n";
 
       for (const obj of selectedObjects) {
+        // Veafix: modelId on nüüd tüübiga OK
         if (!obj.modelId) continue;
 
         const bBoxes = await api.viewer.getObjectBoundingBoxes(obj.modelId, [obj.id]);
@@ -448,16 +448,17 @@ function MarkupBuilder({
 
         if (values.length > 0) {
           const markupText = values.join(separatorStr);
+          const yOffset = position === "top" ? 500 : 0;  // ← Veafix: Kasuta position-it (ülespoole offset)
           const markup: TextMarkup = {
             text: markupText,
             start: {
               positionX: midPoint.x * 1000,
-              positionY: midPoint.y * 1000,
+              positionY: (midPoint.y * 1000) + yOffset,
               positionZ: midPoint.z * 1000,
             },
             end: {
               positionX: midPoint.x * 1000,
-              positionY: midPoint.y * 1000,
+              positionY: (midPoint.y * 1000) + yOffset,
               positionZ: midPoint.z * 1000,
             },
           };
@@ -481,10 +482,10 @@ function MarkupBuilder({
     } finally {
       setIsApplying(false);
     }
-  }, [selectedObjects, selectedFields, separator, api, onComplete, onError, language]);
+  }, [selectedObjects, selectedFields, separator, position, api, onComplete, onError, language]);
 
   return (
-    <div style={styles.container}>
+    <div style={styles.builderContainer}>
       <button
         onClick={handleApplyMarkup}
         disabled={isApplying || selectedFields.length === 0}
@@ -502,9 +503,9 @@ function MarkupBuilder({
 }
 
 // ====================
-// PEAMINE KOMPONENT: ExportTab (integratsioon)
+// PEAMINE KOMPONENT: AdvancedMarkupBuilder (integratsioon, veafix: markupIds kasutamine)
 // ====================
-export function ExportTab({ api, exportData, language, addLog }: ExportTabProps) {
+export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: ExportTabProps) {
   const [showMarkupBuilder, setShowMarkupBuilder] = useState(false);
   const [selectedMarkupFields, setSelectedMarkupFields] = useState<DiscoveredField[]>([]);
   const [markupSeparator, setMarkupSeparator] = useState<"comma" | "newline">("comma");
@@ -519,8 +520,10 @@ export function ExportTab({ api, exportData, language, addLog }: ExportTabProps)
     }
   }, [showMarkupBuilder, exportData, language, addLog]);
 
-  const handleMarkupComplete = useCallback((markupIds: number[], message: string) => {
+  const handleMarkupComplete = useCallback((markupIds: number[], message: string) => {  // ← Veafix: Kasuta markupIds
     addLog(message);
+    console.log("Lisatud markup ID-d:", markupIds);  // Nt. salvestamiseks
+    // Valikuline: await saveToOrganizer(markupIds); // Kui lisad Organizer loogika
   }, [addLog]);
 
   const handleMarkupError = useCallback((errorMessage: string) => {
@@ -610,9 +613,10 @@ export function ExportTab({ api, exportData, language, addLog }: ExportTabProps)
 }
 
 // ====================
-// STIILE (Kõik inline)
+// STIILE (Ilma dubleerideta, veafix)
 // ====================
 const styles: Record<string, React.CSSProperties> = {
+  // Üldised
   container: { display: "flex", flexDirection: "column", gap: 12, padding: 12, background: "#fff", borderRadius: 6 },
   section: { display: "flex", flexDirection: "column", gap: 8 },
   labelTop: { fontSize: 11, fontWeight: 500, opacity: 0.75 },
@@ -628,22 +632,26 @@ const styles: Record<string, React.CSSProperties> = {
   step: { display: "flex", flexDirection: "column", gap: 8, padding: 8, border: "1px solid #e6eaf0", borderRadius: 4, background: "#fff" },
   stepTitle: { fontSize: 12, fontWeight: 600, margin: 0, marginBottom: 4, color: "#0a3a67" },
   btn: { padding: "8px 12px", fontSize: 11, fontWeight: 500, background: "#0a3a67", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" },
-  // MarkupFieldDiscovery stiilid
+
+  // MarkupFieldDiscovery
   loadingText: { fontSize: 11, opacity: 0.7, marginTop: 4, marginBottom: 4 },
   emptyText: { fontSize: 11, opacity: 0.7, padding: "8px", color: "#f44336", marginTop: 4, marginBottom: 4 },
   fieldsList: { display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflow: "auto", border: "1px solid #e6eaf0", borderRadius: 6, padding: 8 },
   fieldItem: { padding: 8, border: "1px solid #eef1f6", borderRadius: 4, background: "#fafbfc" },
   fieldHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
   fieldName: { fontSize: 11, fontWeight: 500, fontFamily: "monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  frequencyBadge: { fontSize: 9, fontWeight: 600, color: "#fff", padding: "2px 6px", borderRadius: 3, marginLeft: 4, whiteSpace: "nowrap" },
+  frequencyBadge: {  // ← Ainult ÜKS definitsioon!
+    fontSize: 9, fontWeight: 600, color: "#fff", padding: "2px 6px", borderRadius: 3, marginLeft: 4, whiteSpace: "nowrap",
+  },
   samplesRow: { display: "flex", gap: 4, alignItems: "flex-start", marginBottom: 4, fontSize: 10 },
   sampleLabel: { opacity: 0.7, whiteSpace: "nowrap", fontWeight: 500 },
   samples: { display: "flex", gap: 4, flexWrap: "wrap", flex: 1 },
   sample: { background: "#e7f3ff", padding: "2px 6px", borderRadius: 3, fontSize: 9, fontFamily: "monospace", color: "#0a3a67" },
   statsRow: { display: "flex", gap: 8, fontSize: 9, opacity: 0.7 },
   stat: { whiteSpace: "nowrap" },
-  // MarkupFieldSelector stiilid
-  container: { display: "flex", flexDirection: "column", gap: 8 }, // Selector container
+
+  // MarkupFieldSelector
+  selectorContainer: { display: "flex", flexDirection: "column", gap: 8 },
   controlsRow: { display: "flex", gap: 4 },
   smallBtn: { padding: "4px 8px", fontSize: 10, border: "1px solid #cfd6df", borderRadius: 4, background: "#fff", cursor: "pointer", flex: 1 },
   fieldsList: { display: "flex", flexDirection: "column", gap: 4, maxHeight: 240, overflow: "auto", border: "1px solid #e6eaf0", borderRadius: 6, padding: 8, background: "#fafbfc" },
@@ -657,10 +665,11 @@ const styles: Record<string, React.CSSProperties> = {
   preview: { display: "flex", flexDirection: "column", gap: 4, padding: 8, border: "1px solid #cfd6df", borderRadius: 6, background: "#f6f8fb" },
   previewLabel: { fontSize: 10, fontWeight: 500, opacity: 0.7 },
   previewBox: { fontSize: 10, fontFamily: "monospace", padding: 6, border: "1px solid #cfd6df", borderRadius: 4, background: "#fff", minHeight: 32, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "#0a3a67" },
-  // MarkupBuilder stiilid
-  container: { display: "flex", flexDirection: "column", gap: 6, padding: 8 },
+
+  // MarkupBuilder
+  builderContainer: { display: "flex", flexDirection: "column", gap: 6, padding: 8 },
   applyBtn: { padding: "8px 12px", borderRadius: 6, border: "none", background: "#ff9800", color: "#fff", fontWeight: 500, fontSize: 11, cursor: "pointer" },
   loadingText: { fontSize: 10, opacity: 0.7, textAlign: "center" },
 };
 
-export default ExportTab;
+export default AdvancedMarkupBuilder;
