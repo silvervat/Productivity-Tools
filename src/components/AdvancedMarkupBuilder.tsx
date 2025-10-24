@@ -471,10 +471,11 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
     setDiscoveryError("");
 
     try {
-      const selection = await api.viewer.getSelection();
-      addLog(`Selection received: ${selection?.length || 0} items`, "info");
-
-      if (!selection || selection.length === 0) {
+      // Use getObjects({ selected: true }) like Assembly Exporter does
+      addLog(`Calling api.viewer.getObjects({ selected: true })...`, "debug");
+      const modelObjectsArray = await api.viewer?.getObjects?.({ selected: true });
+      
+      if (!Array.isArray(modelObjectsArray) || modelObjectsArray.length === 0) {
         const msg = t.selectObjects;
         setDiscoveryError(msg);
         addLog(msg, "warn");
@@ -482,61 +483,99 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
         return;
       }
 
+      // Convert to { modelId, objects } format
+      const selection = modelObjectsArray.map((mo: any) => ({
+        modelId: String(mo.modelId || ""),
+        objects: mo.objects || [],
+      }));
+
+      addLog(`Selection received: ${selection.length} models with objects`, "info");
+
       const allFlattened: Record<string, string>[] = [];
       let totalObjs = 0;
       let processedObjects = 0;
 
-      // Calculate total
+      // Calculate total objects
       for (const sel of selection) {
-        totalObjs += sel.objectRuntimeIds?.length || 0;
+        totalObjs += sel.objects?.length || 0;
       }
-      addLog(`Processing ${totalObjs} total objects`, "info");
+      addLog(`Processing ${totalObjs} total objects across ${selection.length} models`, "info");
 
       const projectName = await getProjectName(api);
       const modelIds = selection.map((item: any) => item.modelId).filter(Boolean);
       const nameMap = await buildModelNameMap(api, modelIds, addLog);
 
       for (const selectionItem of selection) {
-        if (!selectionItem.objectRuntimeIds) {
-          addLog("No objectRuntimeIds in selection item", "warn");
+        const objects = selectionItem.objects || [];
+
+        if (!objects.length) {
+          addLog(`No objects in model ${selectionItem.modelId}`, "debug");
           continue;
         }
 
-        const objectRuntimeIds = Array.isArray(selectionItem.objectRuntimeIds)
-          ? selectionItem.objectRuntimeIds
-          : [selectionItem.objectRuntimeIds];
+        const objectRuntimeIds = objects.map((o: any) => Number(o?.id)).filter((n: number) => Number.isFinite(n));
 
-        addLog(`Processing model: ${selectionItem.modelId}, ${objectRuntimeIds.length} objects`, "info");
+        addLog(`Processing model: ${selectionItem.modelId}, ${objects.length} objects (${objectRuntimeIds.length} valid IDs)`, "info");
 
         if (objectRuntimeIds.length === 0) continue;
 
         try {
-          addLog(`Calling getObjectProperties for ${objectRuntimeIds.length} objects...`, "debug");
-          const fullProperties = await (api.viewer as any).getObjectProperties?.(
-            selectionItem as any,
-            objectRuntimeIds,
-            { includeHidden: true }
-          );
+          // Get initial objects from selection
+          let objectsToProcess: any[] = [];
+          if (selectionItem.objects && Array.isArray(selectionItem.objects)) {
+            objectsToProcess = selectionItem.objects;
+            addLog(`Got ${objectsToProcess.length} objects from selection`, "debug");
+          } else {
+            addLog(`⚠️ No objects array in selectionItem, creating empty array`, "warn");
+            objectsToProcess = [];
+          }
 
-          if (fullProperties) {
-            addLog(`✅ Got properties! Type: ${typeof fullProperties}, isArray: ${Array.isArray(fullProperties)}`, "debug");
-            if (Array.isArray(fullProperties)) {
-              addLog(`   Array with ${fullProperties.length} items, first keys: ${Object.keys(fullProperties[0] || {}).slice(0, 5).join(", ")}`, "debug");
-            } else {
-              addLog(`   Object keys: ${Object.keys(fullProperties).slice(0, 5).join(", ")}`, "debug");
+          // Call getObjectProperties
+          let fullProperties: any = null;
+          if (objectsToProcess.length > 0) {
+            addLog(`Calling getObjectProperties for ${objectRuntimeIds.length} runtime IDs...`, "debug");
+            try {
+              fullProperties = await (api.viewer as any).getObjectProperties?.(
+                selectionItem as any,
+                objectRuntimeIds,
+                { includeHidden: true }
+              );
+              addLog(`✅ Got properties! Type: ${typeof fullProperties}`, "debug");
+            } catch (e: any) {
+              addLog(`getObjectProperties call failed: ${e.message}`, "warn");
+              fullProperties = null;
             }
-            const fullObjects = Array.isArray(fullProperties) ? fullProperties : [fullProperties];
+          }
 
+          // MERGE like Assembly Exporter: combine original objects with fetched properties
+          let fullObjects = objectsToProcess;
+          if (fullProperties) {
+            fullObjects = objectsToProcess.map((obj: any, idx: number) => ({
+              ...obj,
+              properties: Array.isArray(fullProperties) 
+                ? (fullProperties[idx]?.properties || obj.properties)
+                : (fullProperties?.properties || obj.properties),
+            }));
+            addLog(`Merged ${fullObjects.length} objects with properties`, "debug");
+          }
+
+          // Flatten all objects
+          if (fullObjects.length > 0) {
             const flattened = await Promise.all(
               fullObjects.map((o: any) =>
                 flattenProps(o, selectionItem.modelId || "", projectName, nameMap, api, addLog)
               )
             );
             allFlattened.push(...flattened);
-            processedObjects += objectRuntimeIds.length;
+            addLog(`Flattened ${flattened.length} objects, found keys:`, "debug");
+            flattened.forEach((obj, idx) => {
+              const keys = Object.keys(obj).filter(k => obj[k] && String(obj[k]).length > 0);
+              addLog(`  Object ${idx}: ${keys.slice(0, 5).join(", ")} (${keys.length} total)`, "debug");
+            });
+            processedObjects += objectsToProcess.length;
             addLog(`Processed ${processedObjects}/${totalObjs} objects`, "debug");
           } else {
-            addLog(`❌ getObjectProperties returned null/undefined`, "warn");
+            addLog(`No objects to process in this selection item`, "warn");
           }
         } catch (err: any) {
           addLog(`Property fetch error: ${err.message}`, "error");
