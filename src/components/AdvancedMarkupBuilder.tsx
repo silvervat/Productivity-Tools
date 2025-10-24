@@ -562,39 +562,6 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                 { includeHidden: true }
               );
               addLog(`✅ Got properties! Type: ${typeof fullProperties}`, "debug");
-              
-              // UUUS: FULL structure logging
-              if (fullProperties) {
-                if (Array.isArray(fullProperties)) {
-                  addLog(`   📋 Array with ${fullProperties.length} items`, "debug");
-                  if (fullProperties.length > 0) {
-                    const first = fullProperties[0] || {};
-                    const keys = Object.keys(first);
-                    addLog(`   First item keys: ${keys.join(", ")}`, "debug");
-                    // Check for properties field
-                    if (first.properties) {
-                      const propsCount = Array.isArray(first.properties) ? first.properties.length : Object.keys(first.properties).length;
-                      addLog(`   ✅ first.properties EXISTS: ${Array.isArray(first.properties) ? `array[${propsCount}]` : `object with ${propsCount} keys`}`, "debug");
-                      if (Array.isArray(first.properties) && first.properties.length > 0) {
-                        const firstPropSet = first.properties[0];
-                        addLog(`      → properties[0]: name="${firstPropSet?.name}", has properties=${!!firstPropSet?.properties}`, "debug");
-                      }
-                    }
-                  }
-                } else {
-                  const keys = Object.keys(fullProperties);
-                  addLog(`   📋 Object with ${keys.length} keys: ${keys.join(", ")}`, "debug");
-                  // Check for properties field
-                  if (fullProperties.properties) {
-                    const propsCount = Array.isArray(fullProperties.properties) ? fullProperties.properties.length : Object.keys(fullProperties.properties).length;
-                    addLog(`   ✅ fullProperties.properties EXISTS: ${Array.isArray(fullProperties.properties) ? `array[${propsCount}]` : `object with ${propsCount} keys`}`, "debug");
-                    if (Array.isArray(fullProperties.properties) && fullProperties.properties.length > 0) {
-                      const firstPropSet = fullProperties.properties[0];
-                      addLog(`      → properties[0]: name="${firstPropSet?.name}", has properties=${!!firstPropSet?.properties}`, "debug");
-                    }
-                  }
-                }
-              }
             } catch (e: any) {
               addLog(`getObjectProperties call failed: ${e.message}`, "warn");
               fullProperties = null;
@@ -604,8 +571,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           // MERGE like Assembly Exporter: combine original objects with fetched properties
           let fullObjects = objectsToProcess;
           if (fullProperties) {
-            addLog(`📦 Merging ${objectsToProcess.length} objects with properties...`, "debug");
-            addLog(`fullProperties structure: isArray=${Array.isArray(fullProperties)}, keys=${Array.isArray(fullProperties) ? "N/A" : Object.keys(fullProperties || {}).join(", ")}`, "debug");
+            addLog(`📦 Merging ${objectsToProcess.length} objects with fullProperties...`, "debug");
             
             fullObjects = objectsToProcess.map((obj: any, idx: number) => {
               let mergedProperties = obj.properties;
@@ -619,7 +585,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                 mergedProperties = fullProperties.properties;
               }
               // Case 3: fullProperties IS the properties (direct)
-              else if (Array.isArray(fullProperties) || typeof fullProperties === "object") {
+              else if (typeof fullProperties === "object") {
                 mergedProperties = fullProperties;
               }
               
@@ -627,15 +593,6 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                 ...obj,
                 properties: mergedProperties,
               };
-              
-              const hasProp = !!merged.properties;
-              const propType = Array.isArray(merged.properties) ? `array[${merged.properties.length}]` : typeof merged.properties;
-              addLog(`  Object ${idx}: has properties=${hasProp}, type=${propType}`, "debug");
-              if (hasProp && Array.isArray(merged.properties) && merged.properties.length > 0) {
-                const firstSet = merged.properties[0];
-                const sampleKey = firstSet?.name || Object.keys(firstSet || {})[0] || "(no key)";
-                addLog(`    -> properties[0]: ${sampleKey}`, "debug");
-              }
               return merged;
             });
             addLog(`✅ Merged ${fullObjects.length} objects`, "debug");
@@ -647,21 +604,16 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           if (fullObjects.length > 0) {
             addLog(`🔄 Flattening ${fullObjects.length} objects...`, "debug");
             const flattened = await Promise.all(
-              fullObjects.map((o: any, idx: number) => {
-                addLog(`  Flattening object ${idx}...`, "debug");
-                return flattenProps(o, selectionItem.modelId || "", projectName, nameMap, api, addLog);
-              })
+              fullObjects.map((o: any) =>
+                flattenProps(o, selectionItem.modelId || "", projectName, nameMap, api, addLog)
+              )
             );
             allFlattened.push(...flattened);
-            addLog(`📊 Flattened results:`, "debug");
-            flattened.forEach((obj, idx) => {
-              const keys = Object.keys(obj).filter(k => obj[k] && String(obj[k]).length > 0);
-              addLog(`  Object ${idx}: ${keys.slice(0, 5).join(", ")} (${keys.length} total keys)`, "debug");
-            });
+            addLog(`✅ Flattened ${flattened.length} objects`, "debug");
             processedObjects += objectsToProcess.length;
             addLog(`Processed ${processedObjects}/${totalObjs} objects`, "debug");
           } else {
-            addLog(`No objects to process in this selection item`, "warn");
+            addLog(`⚠️ No objects to process`, "warn");
           }
         } catch (err: any) {
           addLog(`Property fetch error: ${err.message}`, "error");
