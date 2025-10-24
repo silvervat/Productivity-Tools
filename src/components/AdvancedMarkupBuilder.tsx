@@ -18,19 +18,21 @@ interface PropertyField {
 const translations = {
   et: {
     title: "MARKUP KOOSTE EHITAJA",
-    discoverFields: "🔍 TUVASTA ANDME VÄLJAD",
+    discoverFields: "🔍 TUVASTA ANDMEVÄLJAD",
     selectedFields: "Valitud väljad:",
     noFieldsSelected: "❌ Palun vali vähemalt üks väli!",
     separator: "Eraldaja:",
     prefix: "Eesliide:",
     useLineBreak: "Kasuta reavahte",
     applyMarkup: "➕ LISA MARKUP",
-    condenseResults: "🔗 KOONDA JA KOPEERI",
+    condenseResults: "📋 KOONDA JA KOPEERI",
     results: "Tulemused:",
     selectObjects: "⚠️ Palun vali objektid 3D vaates",
     discovering: "Tuvastan väljasid...",
     applying: "Lisastan markup...",
     success: "✅ Markup lisatud",
+    noDataDiscovered: "⚠️ Objektidel puuduvad omadused",
+    error: "❌ Viga:",
   },
   en: {
     title: "ADVANCED MARKUP BUILDER",
@@ -41,12 +43,14 @@ const translations = {
     prefix: "Prefix:",
     useLineBreak: "Use line breaks",
     applyMarkup: "➕ ADD MARKUP",
-    condenseResults: "🔗 CONDENSE & COPY",
+    condenseResults: "📋 CONDENSE & COPY",
     results: "Results:",
     selectObjects: "⚠️ Please select objects in 3D view",
     discovering: "Discovering fields...",
     applying: "Applying markup...",
     success: "✅ Markup applied",
+    noDataDiscovered: "⚠️ Objects have no properties",
+    error: "❌ Error:",
   },
 };
 
@@ -63,6 +67,33 @@ const SEPARATORS = [
 interface AdvancedMarkupBuilderProps {
   api: WorkspaceAPI.WorkspaceAPI | undefined;
   language?: Language;
+}
+
+// Helper function to flatten object properties (inspired by Assembly Exporter)
+function flattenObject(obj: any, prefix: string = ""): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  function flatten(o: any, p: string) {
+    if (o === null || o === undefined) return;
+    
+    if (Array.isArray(o)) {
+      o.forEach((item, i) => flatten(item, `${p}[${i}]`));
+    } else if (typeof o === "object") {
+      Object.entries(o).forEach(([key, val]) => {
+        const newKey = p ? `${p}.${key}` : key;
+        if (typeof val === "object" && val !== null) {
+          flatten(val, newKey);
+        } else {
+          result[newKey] = String(val || "");
+        }
+      });
+    } else {
+      result[p] = String(o || "");
+    }
+  }
+
+  flatten(obj, prefix);
+  return result;
 }
 
 export default function AdvancedMarkupBuilder({
@@ -82,8 +113,8 @@ export default function AdvancedMarkupBuilder({
   const previousMarkupIds = useRef<string[]>([]);
 
   const discoverFields = useCallback(async () => {
-    if (!api) {
-      setDiscoveryError("API not available");
+    if (!api?.viewer) {
+      setDiscoveryError(t.selectObjects);
       return;
     }
 
@@ -91,6 +122,7 @@ export default function AdvancedMarkupBuilder({
     setDiscoveryError("");
 
     try {
+      // Get selected objects from 3D view
       const selection = await api.viewer.getSelection();
       if (!selection || selection.length === 0) {
         setDiscoveryError(t.selectObjects);
@@ -98,19 +130,68 @@ export default function AdvancedMarkupBuilder({
         return;
       }
 
-      // Loome näidisväljad (kuna API ei anna otse väljasid)
-      const fields: { [key: string]: PropertyField } = {
-        "Name": { name: "Name", value: "Sample Object", selected: true },
-        "Type": { name: "Type", value: "Component", selected: true },
-        "Material": { name: "Material", value: "Steel", selected: false },
-        "Size": { name: "Size", value: "1000x500", selected: false },
-      };
+      const fieldsMap: { [key: string]: PropertyField } = {};
+      let fieldCount = 0;
 
-      setDiscoveredFields(fields);
-      setSuccessMessage("✅ Väljad leitud!");
-      setTimeout(() => setSuccessMessage(""), 3000);
+      // Process each selected item
+      for (const selectionItem of selection) {
+        if (!selectionItem.objectRuntimeIds) continue;
+
+        const modelId = selectionItem.id || selectionItem.modelId;
+        if (!modelId) continue;
+
+        try {
+          // Get full properties for selected objects
+          const objectRuntimeIds = selectionItem.objectRuntimeIds.map((id: any) => 
+            typeof id === 'string' ? parseInt(id) : id
+          ).filter((n: number) => Number.isFinite(n));
+
+          if (objectRuntimeIds.length === 0) continue;
+
+          // API call to get object properties
+          const fullProperties = await (api as any).viewer.getObjectProperties?.(
+            modelId,
+            objectRuntimeIds,
+            { includeHidden: true }
+          );
+
+          if (!fullProperties) continue;
+
+          // Process first object's properties as sample fields
+          const firstProps = Array.isArray(fullProperties) ? fullProperties[0] : fullProperties;
+          
+          if (firstProps?.properties) {
+            const flattened = flattenObject(firstProps.properties);
+            
+            // Add discovered fields to map
+            Object.entries(flattened).forEach(([key, value]) => {
+              if (value && value.trim().length > 0 && !fieldsMap[key]) {
+                fieldsMap[key] = {
+                  name: key,
+                  value: String(value).substring(0, 100),
+                  selected: fieldCount < 5, // Auto-select first 5 fields
+                };
+                fieldCount++;
+              }
+            });
+          }
+        } catch (err: any) {
+          console.warn(`Property fetch error for model ${modelId}:`, err.message);
+          // Continue with other objects
+        }
+      }
+
+      if (fieldCount === 0) {
+        setDiscoveryError(t.noDataDiscovered);
+        setDiscoveredFields({});
+      } else {
+        setDiscoveredFields(fieldsMap);
+        setSuccessMessage(`✅ ${fieldCount} välja leitud!`);
+        setTimeout(() => setSuccessMessage(""), 3000);
+      }
     } catch (err: any) {
-      setDiscoveryError("Viga väljasid tuvastaes");
+      setDiscoveryError(`${t.error} ${err.message}`);
+      console.error("Discover error:", err);
     } finally {
       setIsDiscovering(false);
     }
@@ -127,8 +208,8 @@ export default function AdvancedMarkupBuilder({
   };
 
   const applyMarkup = useCallback(async () => {
-    if (!api) {
-      setDiscoveryError("API not available");
+    if (!api?.viewer) {
+      setDiscoveryError(t.selectObjects);
       return;
     }
 
@@ -153,39 +234,67 @@ export default function AdvancedMarkupBuilder({
       const results: MarkupResult[] = [];
       const newMarkupIds: string[] = [];
 
-      // Iga valitud objekti jaoks
+      // For each selected object
       for (const selectionItem of selection) {
         if (!selectionItem.objectRuntimeIds) continue;
 
-        for (const objectId of selectionItem.objectRuntimeIds) {
-          // Konstrueeri markup tekst
-          const values = selectedFields
-            .map((field) => field.value)
-            .filter((v) => v && v.length > 0);
+        const modelId = selectionItem.id || selectionItem.modelId;
+        if (!modelId) continue;
 
-          if (values.length === 0) continue;
+        try {
+          const objectRuntimeIds = selectionItem.objectRuntimeIds.map((id: any) =>
+            typeof id === 'string' ? parseInt(id) : id
+          ).filter((n: number) => Number.isFinite(n));
 
-          const separator = useLineBreak ? "\n" : markupSeparator;
-          const markupText = markupPrefix + values.join(separator);
+          if (objectRuntimeIds.length === 0) continue;
 
-          try {
-            // Lisa markup - kasuta correcti methodi nime
-            const markupId = await (api.markup as any).add({
-              label: markupText,
-              objectId: objectId,
-            });
+          // Get properties to read actual values
+          const fullProperties = await (api as any).viewer.getObjectProperties?.(
+            modelId,
+            objectRuntimeIds,
+            { includeHidden: true }
+          );
 
-            if (markupId) {
-              newMarkupIds.push(markupId);
-              results.push({
-                text: markupText,
-                count: 1,
+          if (!fullProperties) continue;
+
+          // Process each object
+          for (let idx = 0; idx < objectRuntimeIds.length; idx++) {
+            const props = Array.isArray(fullProperties) ? fullProperties[idx] : fullProperties;
+            if (!props?.properties) continue;
+
+            const flattened = flattenObject(props.properties);
+            const values = selectedFields
+              .map((field) => flattened[field.name] || field.value)
+              .filter((v) => v && v.length > 0);
+
+            if (values.length === 0) continue;
+
+            const separator = useLineBreak ? "\n" : markupSeparator;
+            const markupText = markupPrefix + values.join(separator);
+
+            try {
+              // Add markup to object
+              const markupId = await (api.markup as any).add({
+                label: markupText,
+                objectId: objectRuntimeIds[idx],
+                modelId: modelId,
               });
+
+              if (markupId) {
+                newMarkupIds.push(markupId);
+                results.push({
+                  text: markupText,
+                  count: 1,
+                });
+              }
+            } catch {
+              // Silent fail - continue with next object
+              continue;
             }
-          } catch {
-            // Silent fail - jätkame järgmise objektiga
-            continue;
           }
+        } catch (err: any) {
+          console.warn(`Markup error for model ${modelId}:`, err.message);
+          continue;
         }
       }
 
@@ -193,9 +302,12 @@ export default function AdvancedMarkupBuilder({
       setMarkupResults(results);
       if (results.length > 0) {
         setSuccessMessage(`✅ Markup lisatud ${results.length} objektile!`);
+      } else {
+        setDiscoveryError(t.noDataDiscovered);
       }
     } catch (err: any) {
-      setDiscoveryError("Viga markup'i lisamisel");
+      setDiscoveryError(`${t.error} ${err.message}`);
+      console.error("Apply markup error:", err);
     } finally {
       setIsApplying(false);
     }
@@ -207,7 +319,7 @@ export default function AdvancedMarkupBuilder({
       return;
     }
 
-    // Koonenda resultaate
+    // Condense results
     const condensed = markupResults.reduce(
       (acc, result) => {
         const existing = acc.find((r) => r.text === result.text);
@@ -221,7 +333,7 @@ export default function AdvancedMarkupBuilder({
       [] as MarkupResult[]
     );
 
-    // Kopeeri clipboardi
+    // Copy to clipboard
     const text = condensed.map((r) => `${r.text} - ${r.count}tk`).join("\n");
 
     navigator.clipboard.writeText(text).then(() => {
