@@ -25,16 +25,7 @@ interface ExportTabProps {
   addLog: (message: string) => void;
 }
 
-interface Vector3 {
-  x: number;
-  y: number;
-  z: number;
-}
 
-interface Box3 {
-  min: Vector3;
-  max: Vector3;
-}
 
 // ====================
 // TÕLKED (Bilingual ET/EN)
@@ -108,8 +99,6 @@ const t = (key: string, language: "et" | "en") =>
 // ====================
 // HELPER FUNKTSIOONID
 // ====================
-// getMidPoint function removed - not used in markup builder
-// Can be re-added for 3D positioning in the future
 
 // ====================
 // CUSTOM HOOK: useMarkupFieldDiscovery
