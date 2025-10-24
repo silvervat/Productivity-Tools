@@ -108,13 +108,8 @@ const t = (key: string, language: "et" | "en") =>
 // ====================
 // HELPER FUNKTSIOONID
 // ====================
-function getMidPoint(bBox: Box3): Vector3 {
-  return {
-    x: (bBox.min.x + bBox.max.x) / 2.0,
-    y: (bBox.min.y + bBox.max.y) / 2.0,
-    z: (bBox.min.z + bBox.max.z) / 2.0,
-  };
-}
+// getMidPoint function removed - not used in markup builder
+// Can be re-added for 3D positioning in the future
 
 // ====================
 // CUSTOM HOOK: useMarkupFieldDiscovery
@@ -143,10 +138,10 @@ function useMarkupFieldDiscovery(objects: ObjectProperties[]) {
           if (!propSet.properties) continue;
 
           for (const prop of propSet.properties) {
-            const setNameStr = (propSet as Record<string, unknown>).name as string;
-            const propNameStr = (prop as Record<string, unknown>).name as string;
+            const setNameStr = (propSet as any).name as string;
+            const propNameStr = (prop as any).name as string;
             const propValueStr = String(
-              (prop as Record<string, unknown>).value || ""
+              (prop as any).value || ""
             ).trim();
 
             const key = `${setNameStr}|${propNameStr}`;
@@ -433,7 +428,6 @@ interface MarkupBuilderProps {
 }
 
 function MarkupBuilder({
-  api,
   selectedObjects,
   selectedFields,
   separator,
@@ -460,14 +454,14 @@ function MarkupBuilder({
           const markupText = selectedFields
             .map((field) => {
               const propSet = (obj.properties || []).find(
-                (p) => (p as Record<string, unknown>).name === field.setName
+                (p) => (p as any).name === field.setName
               );
               if (!propSet) return field.propertyName;
 
               const prop = (propSet.properties || []).find(
-                (p) => (p as Record<string, unknown>).name === field.propertyName
+                (p) => (p as any).name === field.propertyName
               );
-              return String((prop as Record<string, unknown>)?.value || "").trim();
+              return String((prop as any)?.value || "").trim();
             })
             .filter((v) => v.length > 0)
             .join(separatorStr);
