@@ -1,329 +1,650 @@
-/* Advanced Markup Builder Styles */
+import { useRef, useState, useCallback } from "react";
+import * as WorkspaceAPI from "trimble-connect-workspace-api";
+import "./AdvancedMarkupBuilder.css";
 
-.amb-container {
-  background: #f5f5f5;
-  border-radius: 8px;
-  padding: 20px;
-  margin: 20px 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell,
-    sans-serif;
-  color: #333;
+const VERSION = "2.5.0"; // ← VERSION TRACKING
+
+type Language = "et" | "en";
+type Tab = "markup" | "logs";
+
+interface MarkupResult {
+  text: string;
+  count: number;
 }
 
-.amb-header {
-  margin-bottom: 20px;
-  border-bottom: 3px solid #0066cc;
-  padding-bottom: 10px;
+interface PropertyField {
+  name: string;
+  value: string;
+  selected: boolean;
 }
 
-.amb-header h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #0066cc;
+interface LogEntry {
+  timestamp: string;
+  level: "info" | "warn" | "error";
+  message: string;
 }
 
-.amb-section {
-  background: white;
-  padding: 16px;
-  margin: 12px 0;
-  border-radius: 6px;
-  border-left: 4px solid #0066cc;
+const translations = {
+  et: {
+    title: "MARKUP KOOSTE EHITAJA",
+    discoverFields: "🔍 TUVASTA ANDMEVÄLJAD",
+    selectedFields: "Valitud väljad:",
+    noFieldsSelected: "❌ Palun vali vähemalt üks väli!",
+    separator: "Eraldaja:",
+    prefix: "Eesliide:",
+    useLineBreak: "Kasuta reavahte",
+    applyMarkup: "➕ LISA MARKUP",
+    condenseResults: "📋 KOONDA JA KOPEERI",
+    results: "Tulemused:",
+    selectObjects: "⚠️ Palun vali objektid 3D vaates",
+    discovering: "Tuvastan väljasid...",
+    applying: "Lisastan markup...",
+    success: "✅ Markup lisatud",
+    noDataDiscovered: "⚠️ Objektidel puuduvad omadused",
+    error: "❌ Viga:",
+    logs: "📋 LOGID",
+    clearLogs: "Tühjenda logid",
+    copyLogs: "Kopeeri logid",
+    noLogs: "Pole logisid.",
+  },
+  en: {
+    title: "ADVANCED MARKUP BUILDER",
+    discoverFields: "🔍 DISCOVER FIELDS",
+    selectedFields: "Selected fields:",
+    noFieldsSelected: "❌ Please select at least one field!",
+    separator: "Separator:",
+    prefix: "Prefix:",
+    useLineBreak: "Use line breaks",
+    applyMarkup: "➕ ADD MARKUP",
+    condenseResults: "📋 CONDENSE & COPY",
+    results: "Results:",
+    selectObjects: "⚠️ Please select objects in 3D view",
+    discovering: "Discovering fields...",
+    applying: "Applying markup...",
+    success: "✅ Markup applied",
+    noDataDiscovered: "⚠️ Objects have no properties",
+    error: "❌ Error:",
+    logs: "📋 LOGS",
+    clearLogs: "Clear logs",
+    copyLogs: "Copy logs",
+    noLogs: "No logs.",
+  },
+};
+
+const SEPARATORS = [
+  { label: " | ", value: " | " },
+  { label: " - ", value: " - " },
+  { label: " , ", value: " , " },
+  { label: " . ", value: " . " },
+  { label: " : ", value: " : " },
+  { label: " / ", value: " / " },
+  { label: "\\n (new line)", value: "\n" },
+];
+
+interface AdvancedMarkupBuilderProps {
+  api: WorkspaceAPI.WorkspaceAPI | undefined;
+  language?: Language;
 }
 
-/* BUTTONS */
-.amb-button {
-  padding: 10px 16px;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
+// Logger utility
+class Logger {
+  logs: LogEntry[] = [];
 
-.amb-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.amb-button-primary {
-  background: #0066cc;
-  color: white;
-}
-
-.amb-button-primary:hover:not(:disabled) {
-  background: #0052a3;
-  box-shadow: 0 2px 8px rgba(0, 102, 204, 0.3);
-}
-
-.amb-button-success {
-  background: #28a745;
-  color: white;
-  width: 100%;
-  margin-top: 12px;
-}
-
-.amb-button-success:hover:not(:disabled) {
-  background: #218838;
-  box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
-}
-
-.amb-button-secondary {
-  background: #6c757d;
-  color: white;
-}
-
-.amb-button-secondary:hover:not(:disabled) {
-  background: #5a6268;
-}
-
-/* INPUTS & SELECTS */
-.amb-label {
-  display: block;
-  margin: 12px 0 8px 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: #333;
-}
-
-.amb-input,
-.amb-select {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-  font-family: inherit;
-  background: white;
-  color: #333;
-  transition: border-color 0.2s ease;
-}
-
-.amb-input:focus,
-.amb-select:focus {
-  outline: none;
-  border-color: #0066cc;
-  box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.1);
-}
-
-.amb-input:disabled,
-.amb-select:disabled {
-  background: #f5f5f5;
-  color: #999;
-}
-
-/* SETTINGS */
-.amb-setting {
-  margin: 12px 0;
-}
-
-.amb-setting:last-child {
-  margin-bottom: 0;
-}
-
-/* CHECKBOXES */
-.amb-checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 8px 0;
-  user-select: none;
-  font-size: 14px;
-}
-
-.amb-checkbox {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: #0066cc;
-}
-
-/* FIELDS */
-.amb-fields {
-  margin-top: 16px;
-}
-
-.amb-fields-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 12px;
-  margin-top: 10px;
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 12px;
-  background: #fafafa;
-  border-radius: 4px;
-  border: 1px solid #eee;
-}
-
-.amb-field-name {
-  font-weight: 600;
-  color: #0066cc;
-  font-size: 13px;
-}
-
-.amb-field-value {
-  font-size: 12px;
-  color: #666;
-  display: block;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* RESULTS */
-.amb-results-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.amb-results-header h3 {
-  margin: 0;
-  font-size: 15px;
-  color: #333;
-}
-
-.amb-results-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 250px;
-  overflow-y: auto;
-  padding: 8px;
-  background: #fafafa;
-  border-radius: 4px;
-  border: 1px solid #eee;
-}
-
-.amb-result-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  background: white;
-  border-left: 3px solid #28a745;
-  border-radius: 2px;
-  font-size: 13px;
-}
-
-.amb-result-text {
-  flex: 1;
-  color: #333;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 85%;
-}
-
-.amb-result-count {
-  background: #e8f5e9;
-  color: #2e7d32;
-  padding: 4px 8px;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-/* MESSAGES */
-.amb-error {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-  border-radius: 4px;
-  padding: 12px;
-  margin: 12px 0;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.amb-success {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
-  border-radius: 4px;
-  padding: 12px;
-  margin: 12px 0;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  animation: slideIn 0.3s ease;
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
+  log(message: string, level: "info" | "warn" | "error" = "info") {
+    const entry: LogEntry = {
+      timestamp: new Date().toLocaleTimeString(),
+      level,
+      message,
+    };
+    this.logs.push(entry);
+    
+    // Also log to browser console
+    const prefix = `[${VERSION}] ${level.toUpperCase()}`;
+    if (level === "error") console.error(prefix, message);
+    else if (level === "warn") console.warn(prefix, message);
+    else console.log(prefix, message);
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  clear() {
+    this.logs = [];
+  }
+
+  export(): string {
+    return this.logs
+      .map((l) => `[${l.timestamp}] ${l.level.toUpperCase()}: ${l.message}`)
+      .join("\n");
   }
 }
 
-/* RESPONSIVE */
-@media (max-width: 768px) {
-  .amb-container {
-    padding: 16px;
-  }
+const logger = new Logger();
 
-  .amb-fields-grid {
-    grid-template-columns: 1fr;
-  }
+// ... (rest of helper functions remain the same: normalizeGuid, classifyGuid, etc.)
 
-  .amb-button {
-    width: 100%;
-    justify-content: center;
-  }
+export default function AdvancedMarkupBuilder({
+  api,
+  language = "et",
+}: AdvancedMarkupBuilderProps) {
+  const t = translations[language];
+  const [tab, setTab] = useState<Tab>("markup");
+  const [discoveredFields, setDiscoveredFields] = useState<{ [key: string]: PropertyField }>({});
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState("");
+  const [markupPrefix, setMarkupPrefix] = useState("");
+  const [markupSeparator, setMarkupSeparator] = useState(" | ");
+  const [useLineBreak, setUseLineBreak] = useState(false);
+  const [markupResults, setMarkupResults] = useState<MarkupResult[]>([]);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const previousMarkupIds = useRef<string[]>([]);
 
-  .amb-results-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
+  // Update logs in state
+  const addLog = useCallback((message: string, level: "info" | "warn" | "error" = "info") => {
+    logger.log(message, level);
+    setLogs([...logger.logs]);
+  }, []);
 
-  .amb-results-header h3 {
-    width: 100%;
-  }
+  const discoverFields = useCallback(async () => {
+    addLog(`Starting field discovery...`, "info");
+    
+    if (!api?.viewer) {
+      const msg = "API viewer not available";
+      setDiscoveryError(msg);
+      addLog(msg, "error");
+      return;
+    }
 
-  .amb-results-header .amb-button-secondary {
-    width: 100%;
-  }
-}
+    setIsDiscovering(true);
+    setDiscoveryError("");
 
-/* SCROLLBARS */
-.amb-fields-grid::-webkit-scrollbar,
-.amb-results-list::-webkit-scrollbar {
-  width: 6px;
-}
+    try {
+      const selection = await api.viewer.getSelection();
+      addLog(`Selection received: ${selection?.length || 0} items`, "info");
+      
+      if (!selection || selection.length === 0) {
+        const msg = t.selectObjects;
+        setDiscoveryError(msg);
+        addLog(msg, "warn");
+        setIsDiscovering(false);
+        return;
+      }
 
-.amb-fields-grid::-webkit-scrollbar-track,
-.amb-results-list::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
-}
+      const fieldsMap: { [key: string]: PropertyField } = {};
+      let fieldCount = 0;
 
-.amb-fields-grid::-webkit-scrollbar-thumb,
-.amb-results-list::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
-}
+      for (const selectionItem of selection) {
+        if (!selectionItem.objectRuntimeIds) {
+          addLog("No objectRuntimeIds in selection item", "warn");
+          continue;
+        }
 
-.amb-fields-grid::-webkit-scrollbar-thumb:hover,
-.amb-results-list::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+        const objectRuntimeIds = Array.isArray(selectionItem.objectRuntimeIds)
+          ? selectionItem.objectRuntimeIds
+          : [selectionItem.objectRuntimeIds];
+
+        addLog(`Processing ${objectRuntimeIds.length} objects`, "info");
+
+        if (objectRuntimeIds.length === 0) continue;
+
+        try {
+          const fullProperties = await (api.viewer as any).getObjectProperties?.(
+            selectionItem as any,
+            objectRuntimeIds,
+            { includeHidden: true }
+          );
+
+          if (fullProperties) {
+            addLog(`Got properties for ${objectRuntimeIds.length} objects`, "info");
+            const firstProps = Array.isArray(fullProperties) ? fullProperties[0] : fullProperties;
+            
+            if (firstProps?.properties && Array.isArray(firstProps.properties)) {
+              firstProps.properties.forEach((propSet: any) => {
+                const setName = propSet?.name || "Unknown";
+                const setProps = propSet?.properties || [];
+                
+                addLog(`Found property set: ${setName} with ${setProps.length} properties`, "info");
+                
+                if (Array.isArray(setProps)) {
+                  setProps.forEach((prop: any) => {
+                    const value = prop?.displayValue ?? prop?.value;
+                    const name = prop?.name || "Unknown";
+                    const key = `${setName}.${name}`;
+                    
+                    if (value !== null && value !== undefined && !fieldsMap[key]) {
+                      fieldsMap[key] = {
+                        name: key,
+                        value: String(value).substring(0, 100),
+                        selected: fieldCount < 8,
+                      };
+                      fieldCount++;
+                    }
+                  });
+                }
+              });
+            } else {
+              addLog("No properties found in first object", "warn");
+            }
+          } else {
+            addLog("getObjectProperties returned no data", "warn");
+          }
+        } catch (err: any) {
+          addLog(`Property fetch error: ${err.message}`, "error");
+        }
+      }
+
+      // ❌ REMOVED default fields fallback - if no fields, show error only
+      if (fieldCount === 0) {
+        const msg = t.noDataDiscovered;
+        setDiscoveryError(msg);
+        addLog(msg, "warn");
+        setDiscoveredFields({});
+      } else {
+        setDiscoveredFields(fieldsMap);
+        addLog(`✅ Discovered ${fieldCount} fields`, "info");
+        setSuccessMessage(`✅ ${fieldCount} välja leitud!`);
+        setTimeout(() => setSuccessMessage(""), 3000);
+      }
+    } catch (err: any) {
+      const msg = `Discover error: ${err.message}`;
+      setDiscoveryError(msg);
+      addLog(msg, "error");
+    } finally {
+      setIsDiscovering(false);
+    }
+  }, [api, t, addLog]);
+
+  const toggleFieldSelection = (fieldName: string) => {
+    setDiscoveredFields((prev) => ({
+      ...prev,
+      [fieldName]: {
+        ...prev[fieldName],
+        selected: !prev[fieldName].selected,
+      },
+    }));
+  };
+
+  const applyMarkup = useCallback(async () => {
+    addLog(`Starting markup application...`, "info");
+    
+    if (!api?.viewer) {
+      const msg = t.selectObjects;
+      setDiscoveryError(msg);
+      addLog(msg, "error");
+      return;
+    }
+
+    const selectedFields = Object.values(discoveredFields).filter((f) => f.selected);
+    if (selectedFields.length === 0) {
+      const msg = t.noFieldsSelected;
+      setDiscoveryError(msg);
+      addLog(msg, "warn");
+      return;
+    }
+
+    addLog(`Applying markup with ${selectedFields.length} fields`, "info");
+    setIsApplying(true);
+    setDiscoveryError("");
+    setSuccessMessage("");
+
+    try {
+      const selection = await api.viewer.getSelection();
+      if (!selection || selection.length === 0) {
+        const msg = t.selectObjects;
+        setDiscoveryError(msg);
+        addLog(msg, "warn");
+        setIsApplying(false);
+        return;
+      }
+
+      const results: MarkupResult[] = [];
+      const newMarkupIds: string[] = [];
+
+      for (const selectionItem of selection) {
+        if (!selectionItem.objectRuntimeIds) continue;
+
+        try {
+          const objectRuntimeIds = selectionItem.objectRuntimeIds
+            .map((id: any) => (typeof id === "string" ? parseInt(id) : id))
+            .filter((n: number) => Number.isFinite(n));
+
+          if (objectRuntimeIds.length === 0) continue;
+
+          const fullProperties = await (api.viewer as any).getObjectProperties?.(
+            selectionItem as any,
+            objectRuntimeIds,
+            { includeHidden: true }
+          );
+
+          if (!fullProperties) {
+            addLog("No properties returned for objects", "warn");
+            continue;
+          }
+
+          for (let idx = 0; idx < objectRuntimeIds.length; idx++) {
+            const props = Array.isArray(fullProperties) ? fullProperties[idx] : fullProperties;
+            if (!props) continue;
+
+            // Extract values from properties
+            const values: string[] = [];
+            selectedFields.forEach((field) => {
+              let value = "";
+              
+              if (Array.isArray(props.properties)) {
+                props.properties.forEach((propSet: any) => {
+                  if (value) return;
+                  const setName = propSet?.name || "";
+                  const setProps = propSet?.properties || [];
+                  
+                  setProps.forEach((prop: any) => {
+                    const key = `${setName}.${prop?.name || ""}`;
+                    if (key === field.name) {
+                      value = String(prop?.displayValue ?? prop?.value || "");
+                    }
+                  });
+                });
+              }
+
+              if (value) values.push(value);
+            });
+
+            if (values.length === 0) continue;
+
+            const separator = useLineBreak ? "\n" : markupSeparator;
+            const markupText = markupPrefix + values.join(separator);
+
+            try {
+              const markupId = await (api.markup as any).add({
+                label: markupText,
+                objectId: objectRuntimeIds[idx],
+              });
+
+              if (markupId) {
+                newMarkupIds.push(markupId);
+                results.push({
+                  text: markupText,
+                  count: 1,
+                });
+                addLog(`✅ Markup added: ${markupText}`, "info");
+              }
+            } catch (err: any) {
+              addLog(`Failed to add markup: ${err.message}`, "error");
+              continue;
+            }
+          }
+        } catch (err: any) {
+          addLog(`Markup error: ${err.message}`, "error");
+          continue;
+        }
+      }
+
+      previousMarkupIds.current = newMarkupIds;
+      setMarkupResults(results);
+      if (results.length > 0) {
+        const msg = `✅ Markup lisatud ${results.length} objektile!`;
+        setSuccessMessage(msg);
+        addLog(msg, "info");
+      } else {
+        const msg = t.noDataDiscovered;
+        setDiscoveryError(msg);
+        addLog(msg, "warn");
+      }
+    } catch (err: any) {
+      const msg = `Apply markup error: ${err.message}`;
+      setDiscoveryError(msg);
+      addLog(msg, "error");
+    } finally {
+      setIsApplying(false);
+    }
+  }, [api, discoveredFields, useLineBreak, markupSeparator, markupPrefix, t, addLog]);
+
+  const condenseAndCopy = useCallback(() => {
+    if (markupResults.length === 0) {
+      setDiscoveryError("Tulemusi pole");
+      return;
+    }
+
+    const condensed = markupResults.reduce(
+      (acc, result) => {
+        const existing = acc.find((r) => r.text === result.text);
+        if (existing) {
+          existing.count++;
+        } else {
+          acc.push({ ...result });
+        }
+        return acc;
+      },
+      [] as MarkupResult[]
+    );
+
+    const text = condensed.map((r) => `${r.text} - ${r.count}tk`).join("\n");
+
+    navigator.clipboard.writeText(text).then(() => {
+      setSuccessMessage("✅ Kopeeritud lõikelauale!");
+      addLog("Results copied to clipboard", "info");
+      setTimeout(() => setSuccessMessage(""), 3000);
+    });
+  }, [markupResults, addLog]);
+
+  const clearLogs = useCallback(() => {
+    logger.clear();
+    setLogs([]);
+    addLog("Logs cleared", "info");
+  }, [addLog]);
+
+  const copyLogs = useCallback(() => {
+    const logText = logger.export();
+    navigator.clipboard.writeText(logText).then(() => {
+      setSuccessMessage("✅ Logid kopeeritud!");
+      setTimeout(() => setSuccessMessage(""), 2000);
+    });
+  }, []);
+
+  const selectedCount = Object.values(discoveredFields).filter((f) => f.selected).length;
+
+  return (
+    <div className="amb-container">
+      <div className="amb-header">
+        <h2>{t.title}</h2>
+        <span style={{ fontSize: "12px", opacity: 0.6 }}>v{VERSION}</span>
+      </div>
+
+      {/* TAB NAVIGATION */}
+      <div style={{ display: "flex", gap: "8px", marginBottom: "16px", borderBottom: "1px solid #ccc" }}>
+        <button
+          onClick={() => setTab("markup")}
+          style={{
+            padding: "8px 16px",
+            background: tab === "markup" ? "#0066cc" : "transparent",
+            color: tab === "markup" ? "white" : "inherit",
+            border: "none",
+            cursor: "pointer",
+            borderRadius: "4px 4px 0 0",
+            fontWeight: tab === "markup" ? "600" : "normal",
+          }}
+        >
+          Markup
+        </button>
+        <button
+          onClick={() => setTab("logs")}
+          style={{
+            padding: "8px 16px",
+            background: tab === "logs" ? "#0066cc" : "transparent",
+            color: tab === "logs" ? "white" : "inherit",
+            border: "none",
+            cursor: "pointer",
+            borderRadius: "4px 4px 0 0",
+            fontWeight: tab === "logs" ? "600" : "normal",
+          }}
+        >
+          {t.logs}
+        </button>
+      </div>
+
+      {/* MARKUP TAB */}
+      {tab === "markup" && (
+        <>
+          <div className="amb-section">
+            <button
+              className="amb-button amb-button-primary"
+              onClick={discoverFields}
+              disabled={isDiscovering}
+            >
+              {isDiscovering ? t.discovering : t.discoverFields}
+            </button>
+
+            {discoveryError && <div className="amb-error">{discoveryError}</div>}
+
+            {Object.keys(discoveredFields).length > 0 && (
+              <div className="amb-fields">
+                <label className="amb-label">
+                  {t.selectedFields} ({selectedCount})
+                </label>
+                <div className="amb-fields-grid">
+                  {Object.entries(discoveredFields).map(([key, field]) => (
+                    <label key={key} className="amb-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={field.selected}
+                        onChange={() => toggleFieldSelection(key)}
+                        className="amb-checkbox"
+                      />
+                      <span className="amb-field-name">{field.name}</span>
+                      <span className="amb-field-value" title={field.value}>
+                        {field.value.substring(0, 20)}
+                        {field.value.length > 20 ? "..." : ""}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {selectedCount > 0 && (
+            <div className="amb-section">
+              <div className="amb-setting">
+                <label>{t.prefix}</label>
+                <input
+                  type="text"
+                  value={markupPrefix}
+                  onChange={(e) => setMarkupPrefix(e.target.value)}
+                  placeholder="Näit: [, ("
+                  className="amb-input"
+                />
+              </div>
+
+              <div className="amb-setting">
+                <label>{t.separator}</label>
+                <select
+                  value={markupSeparator}
+                  onChange={(e) => setMarkupSeparator(e.target.value)}
+                  disabled={useLineBreak}
+                  className="amb-select"
+                >
+                  {SEPARATORS.map((sep) => (
+                    <option key={sep.value} value={sep.value}>
+                      {sep.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="amb-setting">
+                <label className="amb-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={useLineBreak}
+                    onChange={(e) => setUseLineBreak(e.target.checked)}
+                    className="amb-checkbox"
+                  />
+                  <span>{t.useLineBreak}</span>
+                </label>
+              </div>
+
+              <button
+                className="amb-button amb-button-success"
+                onClick={applyMarkup}
+                disabled={isApplying || selectedCount === 0}
+              >
+                {isApplying ? t.applying : t.applyMarkup}
+              </button>
+            </div>
+          )}
+
+          {markupResults.length > 0 && (
+            <div className="amb-section">
+              <div className="amb-results-header">
+                <h3>{t.results}</h3>
+                <button
+                  className="amb-button amb-button-secondary"
+                  onClick={condenseAndCopy}
+                >
+                  {t.condenseResults}
+                </button>
+              </div>
+
+              <div className="amb-results-list">
+                {markupResults.map((result, idx) => (
+                  <div key={idx} className="amb-result-item">
+                    <span className="amb-result-text">{result.text}</span>
+                    <span className="amb-result-count">× {result.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {successMessage && <div className="amb-success">{successMessage}</div>}
+        </>
+      )}
+
+      {/* LOGS TAB */}
+      {tab === "logs" && (
+        <div className="amb-section">
+          <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+            <button className="amb-button amb-button-primary" onClick={copyLogs}>
+              {t.copyLogs}
+            </button>
+            <button className="amb-button amb-button-ghost" onClick={clearLogs}>
+              {t.clearLogs}
+            </button>
+          </div>
+
+          <div
+            style={{
+              border: "1px solid #ccc",
+              borderRadius: "4px",
+              padding: "12px",
+              maxHeight: "400px",
+              overflow: "auto",
+              background: "#f9f9f9",
+              fontFamily: "monospace",
+              fontSize: "12px",
+            }}
+          >
+            {logs.length === 0 ? (
+              <div style={{ color: "#999" }}>{t.noLogs}</div>
+            ) : (
+              logs.map((log, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    color: log.level === "error" ? "#d32f2f" : log.level === "warn" ? "#f57c00" : "#1976d2",
+                    marginBottom: "4px",
+                  }}
+                >
+                  [{log.timestamp}] {log.level.toUpperCase()}: {log.message}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* FOOTER */}
+      <div style={{ marginTop: "12px", fontSize: "11px", opacity: 0.5, textAlign: "center" }}>
+        AdvancedMarkupBuilder v{VERSION} | Trimble Connect
+      </div>
+    </div>
+  );
 }
