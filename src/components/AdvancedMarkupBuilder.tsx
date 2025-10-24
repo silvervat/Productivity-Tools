@@ -70,7 +70,7 @@ interface AdvancedMarkupBuilderProps {
 }
 
 // Helper function to flatten object properties - FIXED for property sets
-function flattenObject(obj: any, prefix: string = ""): Record<string, string> {
+function flattenObject(obj: any): Record<string, string> {
   const result: Record<string, string> = {};
 
   // Handle property sets array (like Assembly Exporter)
