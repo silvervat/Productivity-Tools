@@ -137,8 +137,7 @@ export default function AdvancedMarkupBuilder({
       for (const selectionItem of selection) {
         if (!selectionItem.objectRuntimeIds) continue;
 
-        const modelId = selectionItem.id || selectionItem.modelId;
-        if (!modelId) continue;
+        const modelId = selectionItem as any;
 
         try {
           // Get full properties for selected objects
@@ -238,8 +237,7 @@ export default function AdvancedMarkupBuilder({
       for (const selectionItem of selection) {
         if (!selectionItem.objectRuntimeIds) continue;
 
-        const modelId = selectionItem.id || selectionItem.modelId;
-        if (!modelId) continue;
+        const modelId = selectionItem as any;
 
         try {
           const objectRuntimeIds = selectionItem.objectRuntimeIds.map((id: any) =>
