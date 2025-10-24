@@ -198,33 +198,33 @@ async function getReferenceObjectInfo(
     const m = Array.isArray(meta) ? meta[0] : meta;
     if (m?.file?.name) {
       out.fileName = String(m.file.name);
-      addLog?.(`Got fileName: ${out.fileName}`, "debug");
+      if (addLog) addLog(`Got fileName: ${out.fileName}`, "debug");
     }
     if (m?.file?.format) {
       out.fileFormat = String(m.file.format);
-      addLog?.(`Got fileFormat: ${out.fileFormat}`, "debug");
+      if (addLog) addLog(`Got fileFormat: ${out.fileFormat}`, "debug");
     }
     if (m?.commonType) {
       out.commonType = String(m.commonType);
-      addLog?.(`Got commonType: ${out.commonType}`, "debug");
+      if (addLog) addLog(`Got commonType: ${out.commonType}`, "debug");
     }
     if (m?.globalId) {
       out.guidMs = String(m.globalId);
-      addLog?.(`Got GUID_MS: ${out.guidMs}`, "debug");
+      if (addLog) addLog(`Got GUID_MS: ${out.guidMs}`, "debug");
     }
     if (!out.guidIfc) {
       try {
         const ext = await api?.viewer?.convertToObjectIds?.(modelId, [runtimeId]);
         if (ext && ext[0]) {
           out.guidIfc = String(ext[0]);
-          addLog?.(`Got GUID_IFC: ${out.guidIfc}`, "debug");
+          if (addLog) addLog(`Got GUID_IFC: ${out.guidIfc}`, "debug");
         }
       } catch (err: any) {
-        addLog?.(`convertToObjectIds fallback error: ${err.message}`, "warn");
+        if (addLog) addLog(`convertToObjectIds fallback error: ${err.message}`, "warn");
       }
     }
   } catch (err: any) {
-    addLog?.(`getReferenceObjectInfo error: ${err.message}`, "warn");
+    if (addLog) addLog(`getReferenceObjectInfo error: ${err.message}`, "warn");
   }
   return out;
 }
@@ -478,7 +478,6 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
         return;
       }
 
-      const fieldsMap: { [key: string]: PropertyField } = {};
       const allFlattened: Record<string, string>[] = [];
       let totalObjs = 0;
       let processedObjects = 0;
