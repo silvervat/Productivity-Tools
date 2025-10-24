@@ -1,6 +1,6 @@
 // ============================================
-// ADVANCED MARKUP BUILDER - PARANDATUD TÄIELIK KOOD (Veafix'id kõigile)
-// Üks fail: Hook + Komponendid + Integratsioon
+// ADVANCED MARKUP BUILDER - LÕPLIK PARANDATUD KOOD (Veafix'id kõigile)
+// Üks fail: Kõik sees, ilma dubleerideta, unikaalsed stiilid
 // ============================================
 
 import { useCallback, useEffect, useState } from "react";
@@ -20,9 +20,9 @@ interface DiscoveredField {
 
 interface ExportTabProps {
   api: WorkspaceAPI;
-  exportData: ObjectProperties[];  // ← Veafix: Kohustuslik
+  exportData: ObjectProperties[];
   language: "et" | "en";
-  addLog: (message: string) => void;  // ← Veafix: Kohustuslik
+  addLog: (message: string) => void;
 }
 
 // ====================
@@ -94,7 +94,7 @@ const translations = {
 const t = (key: string, language: "et" | "en") => translations[language][key as keyof typeof translations.et];
 
 // ====================
-// HELPERID (Veafix: any assertion for name/value)
+// HELPERID
 // ====================
 interface Vector3 { x: number; y: number; z: number; }
 interface Box3 { min: Vector3; max: Vector3; }
@@ -135,7 +135,7 @@ async function getPropertyValue(
 }
 
 // ====================
-// HOOK: useMarkupFieldDiscovery (Veafix: any for name)
+// HOOK
 // ====================
 function useMarkupFieldDiscovery(objects: ObjectProperties[]) {
   const [fields, setFields] = useState<DiscoveredField[]>([]);
@@ -211,7 +211,7 @@ function useMarkupFieldDiscovery(objects: ObjectProperties[]) {
 // ====================
 function MarkupFieldDiscovery({ fields, isLoading, language }: { fields: DiscoveredField[]; isLoading: boolean; language: "et" | "en"; }) {
   if (isLoading) {
-    return <p style={styles.loadingText}>{t("discoveringFields", language)}</p>;
+    return <p style={styles.discoveryLoadingText}>{t("discoveringFields", language)}</p>;
   }
 
   if (fields.length === 0) {
@@ -255,14 +255,14 @@ function MarkupFieldDiscovery({ fields, isLoading, language }: { fields: Discove
 }
 
 // ====================
-// KOMPONENT: MarkupFieldSelector (Veafix: setMarkupPosition kasutatakse)
+// KOMPONENT: MarkupFieldSelector
 // ====================
 function MarkupFieldSelector({
   discoveredFields,
   onSelectionChange,
   language,
   onSeparatorChange,
-  onPositionChange,  // ← Veafix: Kasutatakse
+  onPositionChange,
 }: {
   discoveredFields: DiscoveredField[];
   onSelectionChange: (fields: DiscoveredField[]) => void;
@@ -312,7 +312,7 @@ function MarkupFieldSelector({
   }, [separator, onSeparatorChange]);
 
   useEffect(() => {
-    onPositionChange(position);  // ← Veafix: Kasutatakse
+    onPositionChange(position);
   }, [position, onPositionChange]);
 
   return (
@@ -386,14 +386,14 @@ function MarkupFieldSelector({
 }
 
 // ====================
-// KOMPONENT: MarkupBuilder (Veafix: position kasutatakse, modelId assertion)
+// KOMPONENT: MarkupBuilder
 // ====================
 function MarkupBuilder({
   api,
   selectedObjects,
   selectedFields,
   separator,
-  position,  // ← Veafix: Kasutatakse
+  position,
   onComplete,
   onError,
   language,
@@ -426,7 +426,6 @@ function MarkupBuilder({
       const separatorStr = separator === "comma" ? ", " : "\n";
 
       for (const obj of selectedObjects) {
-        // Veafix: modelId assertion
         const modelId = (obj as any).modelId;
         if (!modelId) continue;
 
@@ -444,7 +443,7 @@ function MarkupBuilder({
 
         if (values.length > 0) {
           const markupText = values.join(separatorStr);
-          const yOffset = position === "top" ? 500 : 0;  // ← Veafix: Kasuta position-it
+          const yOffset = position === "top" ? 500 : 0;
           const markup: TextMarkup = {
             text: markupText,
             start: {
@@ -493,19 +492,19 @@ function MarkupBuilder({
       >
         {isApplying ? t("applying", language) : t("apply", language)}
       </button>
-      {isApplying && <div style={styles.loadingText}>{t("extracting", language)}</div>}
+      {isApplying && <div style={styles.builderLoadingText}>{t("extracting", language)}</div>}
     </div>
   );
 }
 
 // ====================
-// PEAMINE KOMPONENT: AdvancedMarkupBuilder (Veafix: markupIds kasutatakse)
+// PEAMINE KOMPONENT
 // ====================
 export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: ExportTabProps) {
   const [showMarkupBuilder, setShowMarkupBuilder] = useState(false);
   const [selectedMarkupFields, setSelectedMarkupFields] = useState<DiscoveredField[]>([]);
   const [markupSeparator, setMarkupSeparator] = useState<"comma" | "newline">("comma");
-  const [markupPosition, setMarkupPosition] = useState<"center" | "top">("center");  // ← Veafix: Kasutatakse
+  const [markupPosition, setMarkupPosition] = useState<"center" | "top">("center");
 
   const { fields: discoveredFields, isLoading } = useMarkupFieldDiscovery(exportData);
 
@@ -516,9 +515,9 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
     }
   }, [showMarkupBuilder, exportData, language, addLog]);
 
-  const handleMarkupComplete = useCallback((markupIds: number[], message: string) => {  // ← Veafix: Kasutatakse markupIds
+  const handleMarkupComplete = useCallback((markupIds: number[], message: string) => {
     addLog(message);
-    console.log("Lisatud markup ID-d:", markupIds);  // Nt. salvestamiseks
+    console.log("Lisatud markup ID-d:", markupIds);
   }, [addLog]);
 
   const handleMarkupError = useCallback((errorMessage: string) => {
@@ -527,7 +526,6 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
 
   return (
     <div style={styles.container}>
-      {/* Olemasolev export loogika (näide) */}
       <div style={styles.section}>
         <button style={styles.btn} onClick={() => addLog("📊 Uuendamine käivitas...")}>
           🔄 {t("refreshData", language)}
@@ -544,7 +542,6 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
 
       <div style={styles.divider} />
 
-      {/* UUS: Markup Builder */}
       <button
         style={styles.markupToggleBtn}
         onClick={handleToggleMarkupBuilder}
@@ -556,13 +553,11 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
 
       {showMarkupBuilder && exportData.length > 0 && (
         <div style={styles.markupPanel}>
-          {/* Step 1: Väljad */}
           <div style={styles.step}>
             <h4 style={styles.stepTitle}>{t("step1Fields", language)}</h4>
             <MarkupFieldDiscovery fields={discoveredFields} isLoading={isLoading} language={language} />
           </div>
 
-          {/* Step 2: Valik */}
           {discoveredFields.length > 0 && (
             <div style={styles.step}>
               <h4 style={styles.stepTitle}>{t("step2Selection", language)}</h4>
@@ -571,12 +566,11 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
                 onSelectionChange={setSelectedMarkupFields}
                 language={language}
                 onSeparatorChange={setMarkupSeparator}
-                onPositionChange={setMarkupPosition}  // ← Veafix: Kasutatakse
+                onPositionChange={setMarkupPosition}
               />
             </div>
           )}
 
-          {/* Step 3: Rakenda */}
           {selectedMarkupFields.length > 0 && (
             <div style={styles.step}>
               <h4 style={styles.stepTitle}>{t("step3Apply", language)}</h4>
@@ -597,7 +591,6 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
 
       <div style={styles.divider} />
 
-      {/* Olemasolev export nupud (näide) */}
       <div style={styles.section}>
         <button style={{ ...styles.btn, background: "#1E88E5" }}>📋 {language === "et" ? "Clipboard" : "Clipboard"}</button>
         <button style={{ ...styles.btn, background: "#4CAF50" }}>📄 CSV</button>
@@ -608,7 +601,7 @@ export function AdvancedMarkupBuilder({ api, exportData, language, addLog }: Exp
 }
 
 // ====================
-// STIILE (Veafix: Kõik unikaalsed, dubleerid eemaldatud)
+// STIILE (Veafix: Unikaalsed nimed, dubleerid eemaldatud)
 // ====================
 const styles: Record<string, React.CSSProperties> = {
   container: { display: "flex", flexDirection: "column", gap: 12, padding: 12, background: "#fff", borderRadius: 6 },
@@ -626,7 +619,8 @@ const styles: Record<string, React.CSSProperties> = {
   step: { display: "flex", flexDirection: "column", gap: 8, padding: 8, border: "1px solid #e6eaf0", borderRadius: 4, background: "#fff" },
   stepTitle: { fontSize: 12, fontWeight: 600, margin: 0, marginBottom: 4, color: "#0a3a67" },
   btn: { padding: "8px 12px", fontSize: 11, fontWeight: 500, background: "#0a3a67", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" },
-  loadingText: { fontSize: 11, opacity: 0.7, marginTop: 4, marginBottom: 4 },
+  // Discovery spetsiifilised (veafix: unikaalsed)
+  discoveryLoadingText: { fontSize: 11, opacity: 0.7, marginTop: 4, marginBottom: 4 },
   emptyText: { fontSize: 11, opacity: 0.7, padding: "8px", color: "#f44336", marginTop: 4, marginBottom: 4 },
   discoveryFieldsList: { display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflow: "auto", border: "1px solid #e6eaf0", borderRadius: 6, padding: 8 },
   fieldItem: { padding: 8, border: "1px solid #eef1f6", borderRadius: 4, background: "#fafbfc" },
@@ -639,6 +633,7 @@ const styles: Record<string, React.CSSProperties> = {
   sample: { background: "#e7f3ff", padding: "2px 6px", borderRadius: 3, fontSize: 9, fontFamily: "monospace", color: "#0a3a67" },
   statsRow: { display: "flex", gap: 8, fontSize: 9, opacity: 0.7 },
   stat: { whiteSpace: "nowrap" },
+  // Selector spetsiifilised
   selectorContainer: { display: "flex", flexDirection: "column", gap: 8 },
   controlsRow: { display: "flex", gap: 4 },
   smallBtn: { padding: "4px 8px", fontSize: 10, border: "1px solid #cfd6df", borderRadius: 4, background: "#fff", cursor: "pointer", flex: 1 },
@@ -653,9 +648,10 @@ const styles: Record<string, React.CSSProperties> = {
   preview: { display: "flex", flexDirection: "column", gap: 4, padding: 8, border: "1px solid #cfd6df", borderRadius: 6, background: "#f6f8fb" },
   previewLabel: { fontSize: 10, fontWeight: 500, opacity: 0.7 },
   previewBox: { fontSize: 10, fontFamily: "monospace", padding: 6, border: "1px solid #cfd6df", borderRadius: 4, background: "#fff", minHeight: 32, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "#0a3a67" },
+  // Builder spetsiifilised (veafix: unikaalne loadingText)
   builderContainer: { display: "flex", flexDirection: "column", gap: 6, padding: 8 },
   applyBtn: { padding: "8px 12px", borderRadius: 6, border: "none", background: "#ff9800", color: "#fff", fontWeight: 500, fontSize: 11, cursor: "pointer" },
-  loadingText: { fontSize: 10, opacity: 0.7, textAlign: "center" },  // ← Viimane, ilma dubleerideta
+  builderLoadingText: { fontSize: 10, opacity: 0.7, textAlign: "center" },
 };
 
 export default AdvancedMarkupBuilder;
