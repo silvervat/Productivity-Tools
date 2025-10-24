@@ -2,7 +2,7 @@ import { useRef, useState, useCallback } from "react";
 import * as WorkspaceAPI from "trimble-connect-workspace-api";
 import "./AdvancedMarkupBuilder.css";
 
-const VERSION = "3.0.2"; // Tekla attributes fallback + default values
+const VERSION = "3.0.1-diag"; // Assembly Exporter + detailed diagnostics
 
 type Language = "et" | "en";
 type Tab = "markup" | "debug";
@@ -171,24 +171,6 @@ function classifyGuid(val: string): "IFC" | "MS" | "UNKNOWN" {
 }
 
 // Assembly Exporter async fallback functions
-
-// Tekla Structures (.trb) fallback - attributes asemel properties
-async function getObjectAttributesFallback(api: any, modelId: string, runtimeIds: number[], addLog?: Function): Promise<any> {
-  try {
-    addLog?.(`Trying getObjectAttributes fallback for Tekla...`, "debug");
-    const attrs = await (api.viewer as any).getObjectAttributes?.(modelId, runtimeIds);
-    if (attrs) {
-      const count = Array.isArray(attrs) ? attrs.length : Object.keys(attrs || {}).length;
-      addLog?.(`✅ Got attributes: ${count} items`, "debug");
-      return attrs;
-    }
-    addLog?.(`getObjectAttributes returned null`, "debug");
-    return null;
-  } catch (err: any) {
-    addLog?.(`getObjectAttributes error: ${err.message}`, "warn");
-    return null;
-  }
-}
 
 async function getPresentationLayerString(api: any, modelId: string, runtimeId: number, addLog?: Function): Promise<string> {
   try {
@@ -580,6 +562,39 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
                 { includeHidden: true }
               );
               addLog(`✅ Got properties! Type: ${typeof fullProperties}`, "debug");
+              
+              // UUUS: FULL structure logging
+              if (fullProperties) {
+                if (Array.isArray(fullProperties)) {
+                  addLog(`   📋 Array with ${fullProperties.length} items`, "debug");
+                  if (fullProperties.length > 0) {
+                    const first = fullProperties[0] || {};
+                    const keys = Object.keys(first);
+                    addLog(`   First item keys: ${keys.join(", ")}`, "debug");
+                    // Check for properties field
+                    if (first.properties) {
+                      const propsCount = Array.isArray(first.properties) ? first.properties.length : Object.keys(first.properties).length;
+                      addLog(`   ✅ first.properties EXISTS: ${Array.isArray(first.properties) ? `array[${propsCount}]` : `object with ${propsCount} keys`}`, "debug");
+                      if (Array.isArray(first.properties) && first.properties.length > 0) {
+                        const firstPropSet = first.properties[0];
+                        addLog(`      → properties[0]: name="${firstPropSet?.name}", has properties=${!!firstPropSet?.properties}`, "debug");
+                      }
+                    }
+                  }
+                } else {
+                  const keys = Object.keys(fullProperties);
+                  addLog(`   📋 Object with ${keys.length} keys: ${keys.join(", ")}`, "debug");
+                  // Check for properties field
+                  if (fullProperties.properties) {
+                    const propsCount = Array.isArray(fullProperties.properties) ? fullProperties.properties.length : Object.keys(fullProperties.properties).length;
+                    addLog(`   ✅ fullProperties.properties EXISTS: ${Array.isArray(fullProperties.properties) ? `array[${propsCount}]` : `object with ${propsCount} keys`}`, "debug");
+                    if (Array.isArray(fullProperties.properties) && fullProperties.properties.length > 0) {
+                      const firstPropSet = fullProperties.properties[0];
+                      addLog(`      → properties[0]: name="${firstPropSet?.name}", has properties=${!!firstPropSet?.properties}`, "debug");
+                    }
+                  }
+                }
+              }
             } catch (e: any) {
               addLog(`getObjectProperties call failed: ${e.message}`, "warn");
               fullProperties = null;
@@ -590,29 +605,42 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           let fullObjects = objectsToProcess;
           if (fullProperties) {
             addLog(`📦 Merging ${objectsToProcess.length} objects with properties...`, "debug");
+            addLog(`fullProperties structure: isArray=${Array.isArray(fullProperties)}, keys=${Array.isArray(fullProperties) ? "N/A" : Object.keys(fullProperties || {}).join(", ")}`, "debug");
+            
             fullObjects = objectsToProcess.map((obj: any, idx: number) => {
+              let mergedProperties = obj.properties;
+              
+              // Case 1: fullProperties is an array (one item per object)
+              if (Array.isArray(fullProperties)) {
+                mergedProperties = fullProperties[idx]?.properties || fullProperties[idx] || obj.properties;
+              }
+              // Case 2: fullProperties is single object with properties field (for 1 object)
+              else if (fullProperties?.properties) {
+                mergedProperties = fullProperties.properties;
+              }
+              // Case 3: fullProperties IS the properties (direct)
+              else if (Array.isArray(fullProperties) || typeof fullProperties === "object") {
+                mergedProperties = fullProperties;
+              }
+              
               const merged = {
                 ...obj,
-                properties: Array.isArray(fullProperties) 
-                  ? (fullProperties[idx]?.properties || obj.properties)
-                  : (fullProperties?.properties || obj.properties),
+                properties: mergedProperties,
               };
-              addLog(`  Object ${idx}: merged properties=${!!merged.properties}, type=${Array.isArray(merged.properties) ? "array" : typeof merged.properties}`, "debug");
+              
+              const hasProp = !!merged.properties;
+              const propType = Array.isArray(merged.properties) ? `array[${merged.properties.length}]` : typeof merged.properties;
+              addLog(`  Object ${idx}: has properties=${hasProp}, type=${propType}`, "debug");
+              if (hasProp && Array.isArray(merged.properties) && merged.properties.length > 0) {
+                const firstSet = merged.properties[0];
+                const sampleKey = firstSet?.name || Object.keys(firstSet || {})[0] || "(no key)";
+                addLog(`    -> properties[0]: ${sampleKey}`, "debug");
+              }
               return merged;
             });
-            addLog(`✅ Merged ${fullObjects.length} objects with properties`, "debug");
+            addLog(`✅ Merged ${fullObjects.length} objects`, "debug");
           } else {
-            addLog(`⚠️ No properties returned, trying Tekla attributes fallback...`, "warn");
-            const attrs = await getObjectAttributesFallback(api, selectionItem.modelId, objectRuntimeIds, addLog);
-            if (attrs) {
-              fullObjects = objectsToProcess.map((obj: any, idx: number) => ({
-                ...obj,
-                properties: Array.isArray(attrs) ? attrs[idx] : attrs,
-              }));
-              addLog(`✅ Merged ${fullObjects.length} objects with Tekla attributes fallback`, "debug");
-            } else {
-              addLog(`ℹ️ No attributes fallback either, continuing with original objects`, "info");
-            }
+            addLog(`⚠️ No properties returned, using original objects`, "warn");
           }
 
           // Flatten all objects
@@ -740,17 +768,11 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           );
 
           if (!fullProperties) {
-            // UUUS: Tekla attributes fallback
-            addLog(`No properties for model ${selectionItem.modelId}, trying Tekla fallback...`, "debug");
-            const attrs = await getObjectAttributesFallback(api, selectionItem.modelId, objectRuntimeIds, addLog);
-            if (attrs) {
-              fullProperties = attrs;
-              addLog(`Using Tekla attributes as fallback`, "debug");
-            } else {
-              addLog(`No properties or attributes for model ${selectionItem.modelId}`, "warn");
-              continue;
-            }
+            addLog(`No properties for model ${selectionItem.modelId}`, "warn");
+            continue;
           }
+          
+          addLog(`Got fullProperties for markup: type=${Array.isArray(fullProperties) ? `array[${fullProperties.length}]` : typeof fullProperties}`, "debug");
 
           for (let idx = 0; idx < objectRuntimeIds.length; idx++) {
             const props = Array.isArray(fullProperties) ? fullProperties[idx] : fullProperties;
