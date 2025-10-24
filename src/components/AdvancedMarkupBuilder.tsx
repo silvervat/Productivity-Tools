@@ -29,7 +29,7 @@ const translations = {
   et: {
     title: "MARKUP KOOSTE EHITAJA",
     version: "Versioon",
-    discoverFields: "🔍 TUVASTA ANDMEVÄLJAD",
+    discoverFields: "🔍 TUUUVASTA ANDMEVÄLJAD",
     selectedFields: "Valitud väljad (lohisemiseks):",
     noFieldsSelected: "❌ Palun vali vähemalt üks väli!",
     separator: "Eraldaja:",
