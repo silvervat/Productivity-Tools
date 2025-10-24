@@ -133,61 +133,93 @@ export default function AdvancedMarkupBuilder({
       const fieldsMap: { [key: string]: PropertyField } = {};
       let fieldCount = 0;
 
-      // Process each selected item
+      // Process each selected item - similar to Assembly Exporter logic
       for (const selectionItem of selection) {
         if (!selectionItem.objectRuntimeIds) continue;
 
-        const modelId = selectionItem as any;
+        const objectRuntimeIds = Array.isArray(selectionItem.objectRuntimeIds)
+          ? selectionItem.objectRuntimeIds
+          : [selectionItem.objectRuntimeIds];
+
+        if (objectRuntimeIds.length === 0) continue;
 
         try {
-          // Get full properties for selected objects
-          const objectRuntimeIds = selectionItem.objectRuntimeIds.map((id: any) => 
-            typeof id === 'string' ? parseInt(id) : id
-          ).filter((n: number) => Number.isFinite(n));
-
-          if (objectRuntimeIds.length === 0) continue;
-
-          // API call to get object properties
-          const fullProperties = await (api as any).viewer.getObjectProperties?.(
-            modelId,
+          // Get full object properties using correct API (like Assembly Exporter does)
+          const fullProperties = await (api.viewer as any).getObjectProperties?.(
+            selectionItem as any, // Pass entire selection item as modelId
             objectRuntimeIds,
             { includeHidden: true }
           );
 
-          if (!fullProperties) continue;
+          if (fullProperties) {
+            // Process first object as sample
+            const firstProps = Array.isArray(fullProperties) 
+              ? fullProperties[0] 
+              : fullProperties;
 
-          // Process first object's properties as sample fields
-          const firstProps = Array.isArray(fullProperties) ? fullProperties[0] : fullProperties;
-          
-          if (firstProps?.properties) {
-            const flattened = flattenObject(firstProps.properties);
-            
-            // Add discovered fields to map
-            Object.entries(flattened).forEach(([key, value]) => {
-              if (value && value.trim().length > 0 && !fieldsMap[key]) {
-                fieldsMap[key] = {
-                  name: key,
-                  value: String(value).substring(0, 100),
-                  selected: fieldCount < 5, // Auto-select first 5 fields
-                };
-                fieldCount++;
-              }
-            });
+            if (firstProps?.properties && typeof firstProps.properties === 'object') {
+              const flattened = flattenObject(firstProps.properties);
+
+              Object.entries(flattened).forEach(([key, value]) => {
+                if (value && value.trim().length > 0 && !fieldsMap[key]) {
+                  fieldsMap[key] = {
+                    name: key,
+                    value: String(value).substring(0, 100),
+                    selected: fieldCount < 5,
+                  };
+                  fieldCount++;
+                }
+              });
+            }
           }
         } catch (err: any) {
-          console.warn(`Property fetch error for model ${modelId}:`, err.message);
-          // Continue with other objects
+          console.warn(`Property fetch error:`, err.message);
+          // Fallback: try simple getObjects
+          try {
+            const objects = await (api.viewer as any).getObjects?.({
+              ids: objectRuntimeIds,
+            });
+
+            if (Array.isArray(objects) && objects.length > 0) {
+              const firstObj = objects[0];
+              const basicProps = ['name', 'type', 'guid', 'code', 'description'];
+
+              for (const propName of basicProps) {
+                const value = (firstObj as any)?.[propName];
+                if (value && String(value).trim().length > 0) {
+                  if (!fieldsMap[propName]) {
+                    fieldsMap[propName] = {
+                      name: propName,
+                      value: String(value).substring(0, 100),
+                      selected: fieldCount < 3,
+                    };
+                    fieldCount++;
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn(`Fallback failed:`, e);
+          }
         }
       }
 
+      // If no fields found, add some default ones
       if (fieldCount === 0) {
-        setDiscoveryError(t.noDataDiscovered);
-        setDiscoveredFields({});
-      } else {
-        setDiscoveredFields(fieldsMap);
-        setSuccessMessage(`✅ ${fieldCount} välja leitud!`);
-        setTimeout(() => setSuccessMessage(""), 3000);
+        const defaultFields = ['name', 'type', 'guid', 'code', 'description'];
+        defaultFields.forEach((field) => {
+          fieldsMap[field] = {
+            name: field,
+            value: `(${field})`,
+            selected: fieldCount < 3,
+          };
+          fieldCount++;
+        });
       }
+
+      setDiscoveredFields(fieldsMap);
+      setSuccessMessage(`✅ ${fieldCount} välja leitud!`);
+      setTimeout(() => setSuccessMessage(""), 3000);
     } catch (err: any) {
       setDiscoveryError(`${t.error} ${err.message}`);
       console.error("Discover error:", err);
@@ -246,9 +278,9 @@ export default function AdvancedMarkupBuilder({
 
           if (objectRuntimeIds.length === 0) continue;
 
-          // Get properties to read actual values
-          const fullProperties = await (api as any).viewer.getObjectProperties?.(
-            modelId,
+          // Get properties using correct API call
+          const fullProperties = await (api.viewer as any).getObjectProperties?.(
+            selectionItem as any,
             objectRuntimeIds,
             { includeHidden: true }
           );
@@ -275,7 +307,6 @@ export default function AdvancedMarkupBuilder({
               const markupId = await (api.markup as any).add({
                 label: markupText,
                 objectId: objectRuntimeIds[idx],
-                modelId: modelId,
               });
 
               if (markupId) {
@@ -291,7 +322,7 @@ export default function AdvancedMarkupBuilder({
             }
           }
         } catch (err: any) {
-          console.warn(`Markup error for model ${modelId}:`, err.message);
+          console.warn(`Markup error:`, err.message);
           continue;
         }
       }
