@@ -229,7 +229,7 @@ async function getReferenceObjectInfo(
   return out;
 }
 
-async function getProjectName(api: any, addLog?: Function): Promise<string> {
+async function getProjectName(api: any): Promise<string> {
   try {
     const proj = typeof api?.project?.getProject === "function" ? await api.project.getProject() : api?.project || {};
     return String(proj?.name || "");
@@ -488,7 +488,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
       }
       addLog(`Processing ${totalObjs} total objects`, "info");
 
-      const projectName = await getProjectName(api, addLog);
+      const projectName = await getProjectName(api);
       const modelIds = selection.map((item: any) => item.modelId).filter(Boolean);
       const nameMap = await buildModelNameMap(api, modelIds, addLog);
 
@@ -612,7 +612,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
 
       const results: MarkupResult[] = [];
       const newMarkupIds: string[] = [];
-      const projectName = await getProjectName(api, addLog);
+      const projectName = await getProjectName(api);
       const modelIds = selection.map((item: any) => item.modelId).filter(Boolean);
       const nameMap = await buildModelNameMap(api, modelIds, addLog);
 
