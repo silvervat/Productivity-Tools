@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as WorkspaceAPI from "trimble-connect-workspace-api";
-import type { ObjectProperties } from "trimble-connect-workspace-api";  // Lisa tüüp
-import SectionPlanesCreator from './components/SectionPlanesCreator';
-import MarkupAnnotations from './components/MarkupAnnotations';
+import type { ObjectProperties } from "trimble-connect-workspace-api";
 import ElementSearch from './components/ElementSearch';
-import AdvancedMarkupBuilder from './components/AdvancedMarkupBuilder';
+import DragDropMarkupBuilder from './components/DragDropMarkupBuilder';
 import '@trimbleinc/modus-bootstrap/dist/modus.min.css';
 import '@trimble-oss/modus-icons/dist/modus-outlined/fonts/modus-icons.css';
 import './App.css';
@@ -14,11 +12,10 @@ type Language = "et" | "en";
 function App() {
   const [tcApi, setTcApi] = useState<WorkspaceAPI.WorkspaceAPI>();
   const [language, setLanguage] = useState<Language>("et");
-  const [exportData] = useState<ObjectProperties[]>([]);  // Tühja array (täida ElementSearch-is hiljem, eemaldan set, kuna pole kasutusel)
+  const [selectedObjects, setSelectedObjects] = useState<ObjectProperties[]>([]);
 
-  // Logger funktsioon (kasuta console.log)
   const addLog = useCallback((message: string) => {
-    console.log(message);  // Hiljem vaheta toast.success(message);
+    console.log(message);
   }, []);
 
   useEffect(() => {
@@ -35,7 +32,7 @@ function App() {
   return (
     <div className='app-wrapper'>
       <div className='app-header'>
-        <h1 className='title'>🛠️ Productivity Tools Pro</h1>
+        <h1 className='title'>🎨 Markup Builder Pro</h1>
         <select 
           value={language} 
           onChange={(e) => setLanguage(e.target.value as Language)}
@@ -48,24 +45,19 @@ function App() {
 
       <div className='components-grid'>
         <section className='component-section'>
-          <AdvancedMarkupBuilder 
-            api={tcApi as WorkspaceAPI.WorkspaceAPI} 
-            exportData={exportData} 
-            language={language} 
-            addLog={addLog} 
+          <ElementSearch 
+            api={tcApi as WorkspaceAPI.WorkspaceAPI}
+            onSelectionChange={setSelectedObjects}
+            language={language}
           />
         </section>
 
         <section className='component-section'>
-          <SectionPlanesCreator api={tcApi as WorkspaceAPI.WorkspaceAPI} />
-        </section>
-
-        <section className='component-section'>
-          <MarkupAnnotations api={tcApi as WorkspaceAPI.WorkspaceAPI} />
-        </section>
-
-        <section className='component-section'>
-          <ElementSearch api={tcApi as WorkspaceAPI.WorkspaceAPI} />
+          <DragDropMarkupBuilder 
+            api={tcApi as WorkspaceAPI.WorkspaceAPI}
+            selectedObjects={selectedObjects}
+            language={language}
+          />
         </section>
       </div>
     </div>

@@ -8,7 +8,34 @@ type ObjectWithValue = {
   value: string
 }
 
-export default function ElementSearch({ api }: { api: WorkspaceAPI }) {
+interface ElementSearchProps {
+  api: WorkspaceAPI;
+  onSelectionChange?: (objects: ObjectProperties[]) => void;
+  language?: "et" | "en";
+}
+
+const translations = {
+  et: {
+    search: "Otsing",
+    searchPhrase: "Otsingufraas",
+    searchValue: "Väärtus",
+    refresh: "Uuenda mudelit",
+    results: "Tulemused",
+  },
+  en: {
+    search: "Search",
+    searchPhrase: "Search phrase",
+    searchValue: "Value",
+    refresh: "Refresh model",
+    results: "Results",
+  },
+};
+
+const t = (key: keyof typeof translations.et, language: string = "et") => {
+  return translations[language as keyof typeof translations][key];
+};
+
+export default function ElementSearch({ api, onSelectionChange, language = "et" }: ElementSearchProps) {
   const [searchValue, setSearchValue] = useState<string>('');
   const [filteredObjects, setFilteredObjects] = useState<ObjectWithValue[]>([]);
 
@@ -38,6 +65,7 @@ export default function ElementSearch({ api }: { api: WorkspaceAPI }) {
 
       if (allModelObjects.current.length == 0 || searchValue === null || searchValue.length == 0) {
         setFilteredObjects([]);
+        if (onSelectionChange) onSelectionChange([]);
         return;
       }
 
@@ -75,17 +103,22 @@ export default function ElementSearch({ api }: { api: WorkspaceAPI }) {
       api.viewer.setSelection(objectSelector, "set");
 
       setFilteredObjects(result);
+
+      // Send selected objects back to parent
+      if (onSelectionChange) {
+        onSelectionChange(result.map(r => r.properties));
+      }
     }, 1000)
 
     return () => clearTimeout(delayDebounceFn)
-  }, [searchValue]);
+  }, [searchValue, onSelectionChange]);
 
   return (
     <>
       <div className="content-panel">
         <div className="row align-items-center">
-          <h3 className="col">Search</h3>
-          <ModusTooltip text="Refresh model">
+          <h3 className="col">{t("search", language)}</h3>
+          <ModusTooltip text={t("refresh", language)}>
             <ModusButton className="col" size="small" buttonStyle="borderless" onClick={getObjectProperties}>
               <i className="modus-icons">refresh</i>
             </ModusButton>
@@ -93,8 +126,8 @@ export default function ElementSearch({ api }: { api: WorkspaceAPI }) {
         </div>
         <ModusTextInput type="text"
           value={searchValue}
-          label="Search phrase"
-          placeholder="Value"
+          label={t("searchPhrase", language)}
+          placeholder={t("searchValue", language)}
           clearable={true}
           onValueChange={e => { setSearchValue(e.target.value) }} />
 
@@ -102,11 +135,13 @@ export default function ElementSearch({ api }: { api: WorkspaceAPI }) {
           {
             _.map(_.groupBy(filteredObjects, (p => p.value)), (val, key) =>
               <ModusTreeViewItem
+                key={key}
                 nodeId={key}
                 label={key}>
                 {
                   val.map(o =>
                     <ModusTreeViewItem
+                      key={o.properties.id.toString()}
                       nodeId={o.properties.id.toString()}
                       label={o.properties.id.toString()}>
                     </ModusTreeViewItem>
