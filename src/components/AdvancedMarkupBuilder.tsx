@@ -307,6 +307,7 @@ async function flattenProps(
 
   // Property sets
   if (Array.isArray(obj?.properties)) {
+    addLog?.(`Properties array found: ${obj.properties.length} sets`, "debug");
     obj.properties.forEach((propSet: any) => {
       const setName = propSet?.name || "Unknown";
       const setProps = propSet?.properties || [];
@@ -320,7 +321,10 @@ async function flattenProps(
       }
     });
   } else if (typeof obj?.properties === "object" && obj.properties !== null) {
+    addLog?.(`Properties is object (not array): ${Object.keys(obj.properties).length} keys`, "debug");
     Object.entries(obj.properties).forEach(([key, val]) => push("Properties", key, val));
+  } else {
+    addLog?.(`⚠️ NO PROPERTIES FOUND in object! obj.properties = ${typeof obj?.properties}`, "warn");
   }
 
   // Standard fields
@@ -507,6 +511,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
         if (objectRuntimeIds.length === 0) continue;
 
         try {
+          addLog(`Calling getObjectProperties for ${objectRuntimeIds.length} objects...`, "debug");
           const fullProperties = await (api.viewer as any).getObjectProperties?.(
             selectionItem as any,
             objectRuntimeIds,
@@ -514,7 +519,12 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
           );
 
           if (fullProperties) {
-            addLog(`Got properties for ${objectRuntimeIds.length} objects`, "debug");
+            addLog(`✅ Got properties! Type: ${typeof fullProperties}, isArray: ${Array.isArray(fullProperties)}`, "debug");
+            if (Array.isArray(fullProperties)) {
+              addLog(`   Array with ${fullProperties.length} items, first keys: ${Object.keys(fullProperties[0] || {}).slice(0, 5).join(", ")}`, "debug");
+            } else {
+              addLog(`   Object keys: ${Object.keys(fullProperties).slice(0, 5).join(", ")}`, "debug");
+            }
             const fullObjects = Array.isArray(fullProperties) ? fullProperties : [fullProperties];
 
             const flattened = await Promise.all(
@@ -526,7 +536,7 @@ export default function AdvancedMarkupBuilder({ api, language = "et" }: Advanced
             processedObjects += objectRuntimeIds.length;
             addLog(`Processed ${processedObjects}/${totalObjs} objects`, "debug");
           } else {
-            addLog(`No properties returned for ${objectRuntimeIds.length} objects`, "warn");
+            addLog(`❌ getObjectProperties returned null/undefined`, "warn");
           }
         } catch (err: any) {
           addLog(`Property fetch error: ${err.message}`, "error");
