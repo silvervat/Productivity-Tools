@@ -32,51 +32,24 @@ function App() {
     // Handler for selection changes
     const handleSelectionChange = async () => {
       try {
-        console.log("Selection changed");
+        console.log("Selection changed - fetching properties");
         
-        // Proovi erinevaid meetodeid propetiste saamiseks
-        let objects: ObjectProperties[] = [];
-
-        // MEETOD 1: Proovi viewer.selectionChanged event
-        try {
-          const selector = { output: { loadProperties: true } };
-          const result = await (tcApi as any).getSelectedObjects?.(selector);
-          if (result && result.length > 0) {
-            objects = result;
-            console.log("Got objects via getSelectedObjects");
-          }
-        } catch (e1) {
-          console.log("getSelectedObjects not available, trying alternative...");
-          
-          // MEETOD 2: Proovi viewer API
-          try {
-            const selection = await (tcApi as any).viewer?.getSelection?.();
-            if (selection && selection.length > 0) {
-              const firstSelection = selection[0];
-              if (firstSelection.objectRuntimeIds) {
-                const bboxes = await (tcApi as any).viewer?.getObjectBoundingBoxes?.(
-                  firstSelection.modelId,
-                  firstSelection.objectRuntimeIds
-                );
-                if (bboxes) {
-                  console.log("Got bboxes:", bboxes.length);
-                }
-              }
-            }
-          } catch (e2) {
-            console.log("Alternative method also failed");
-          }
-        }
-
-        if (objects.length > 0) {
+        // Hangi propetised otse - see on kõige lihtne variant
+        const selector = {
+          output: { loadProperties: true }
+        };
+        
+        const objects = await tcApi.getSelectedObjects(selector);
+        if (objects && objects.length > 0) {
           setSelectedObjects(objects);
           console.log("Selected objects count:", objects.length);
+          console.log("First object properties:", objects[0].properties);
         } else {
-          console.log("No objects found");
+          console.log("No objects selected");
           setSelectedObjects([]);
         }
       } catch (error) {
-        console.error("Error in selection handler:", error);
+        console.error("Error getting selected objects:", error);
         setSelectedObjects([]);
       }
     };
@@ -85,34 +58,26 @@ function App() {
     let removeListener: (() => void) | null = null;
 
     if ((tcApi as any).on) {
-      console.log("Using .on() method for listeners");
+      console.log("Using .on() method");
       (tcApi as any).on("selectionChanged", handleSelectionChange);
       removeListener = () => {
-        try {
-          if ((tcApi as any).off) {
-            (tcApi as any).off("selectionChanged", handleSelectionChange);
-          }
-        } catch (e) {
-          console.error("Error removing listener:", e);
+        if ((tcApi as any).off) {
+          (tcApi as any).off("selectionChanged", handleSelectionChange);
         }
       };
     } else if ((tcApi as any).addEventListener) {
       console.log("Using .addEventListener() method");
       (tcApi as any).addEventListener("selectionChanged", handleSelectionChange);
       removeListener = () => {
-        try {
-          if ((tcApi as any).removeEventListener) {
-            (tcApi as any).removeEventListener("selectionChanged", handleSelectionChange);
-          }
-        } catch (e) {
-          console.error("Error removing listener:", e);
+        if ((tcApi as any).removeEventListener) {
+          (tcApi as any).removeEventListener("selectionChanged", handleSelectionChange);
         }
       };
     } else {
-      console.warn("No event listener method available on API");
+      console.warn("No event listener method available");
     }
 
-    // Initial check
+    // Initial check for selection
     handleSelectionChange();
 
     // Cleanup
