@@ -16,68 +16,74 @@ function App() {
   useEffect(() => {
     async function connectWithTcAPI() {
       const api = await WorkspaceAPI.connect(window.parent, (_event: any, _data: any) => {
-        console.log("🔌 Event from Trimble Connect:", _event, _data);
-        
-        // Kui event on selection muutus
-        if (_event === 'selectionChanged') {
-          console.log("📍 Selection changed event!");
-          handleSelectionChange();
-        }
+        console.log("🔌 Trimble event:", _event);
       });
       setTcApi(api);
-      console.log("✅ Connected to Trimble Connect API");
+      console.log("✅ Connected to API");
     }
     connectWithTcAPI().catch(console.error);
   }, []);
 
-  const handleSelectionChange = async () => {
-    if (!tcApi) {
-      console.log("❌ tcApi pole saadaval");
-      return;
-    }
-
-    try {
-      console.log("🔄 Fetching selected objects...");
-      
-      // Kasuta optional chaining
-      const selector = { output: { loadProperties: true } };
-      const result = await (tcApi as any).getSelectedObjects?.(selector);
-      
-      if (result && result.length > 0) {
-        setSelectedObjects(result);
-        console.log("✅ Got", result.length, "selected objects");
-        console.log("📊 First object:", result[0]);
-      } else {
-        console.log("⚠️ No objects in result");
-        setSelectedObjects([]);
-      }
-    } catch (error) {
-      console.error("❌ Error getting selected objects:", error);
-      
-      // Proovi alternative meetod
-      try {
-        console.log("🔄 Trying alternative method...");
-        const viewer = (tcApi as any).viewer;
-        if (viewer && viewer.getSelection) {
-          const selection = await viewer.getSelection();
-          console.log("📍 Viewer selection:", selection);
-        }
-      } catch (e) {
-        console.error("❌ Alternative method also failed:", e);
-      }
-      
-      setSelectedObjects([]);
-    }
-  };
-
-  // Poll selection iga 500ms
   useEffect(() => {
     if (!tcApi) return;
 
-    console.log("✅ Setting up selection polling");
-    const interval = setInterval(() => {
-      handleSelectionChange();
-    }, 500);
+    console.log("🔄 Starting viewer selection monitoring...");
+
+    const handleSelectionChange = async () => {
+      try {
+        // Kasuta viewer.getSelection() - see on õige meetod!
+        const viewer = (tcApi as any).viewer;
+        if (!viewer) {
+          console.log("❌ viewer pole saadaval");
+          return;
+        }
+
+        const selection = await viewer.getSelection?.();
+        console.log("👁️ Viewer selection:", selection);
+
+        if (selection && selection.length > 0) {
+          const firstSelection = selection[0];
+          console.log("📍 Selected item:", firstSelection);
+
+          // Hangi properties selle objekti jaoks
+          if (firstSelection.objectRuntimeIds && firstSelection.modelId) {
+            try {
+              // Hangi object properties
+              const props = await viewer.getObjectProperties?.(
+                firstSelection.modelId,
+                firstSelection.objectRuntimeIds
+              );
+              console.log("📊 Object properties:", props);
+
+              if (props && props.length > 0) {
+                // Konverteeri properties ObjectProperties formaadiks
+                const objectProperties: ObjectProperties[] = props.map((p: any) => ({
+                  id: p.id,
+                  name: p.name,
+                  properties: p.properties || p.props || {}
+                }));
+                
+                setSelectedObjects(objectProperties);
+                console.log("✅ Got", objectProperties.length, "objects with properties");
+              }
+            } catch (e) {
+              console.error("❌ Error getting object properties:", e);
+            }
+          }
+        } else {
+          console.log("⚠️ No selection");
+          setSelectedObjects([]);
+        }
+      } catch (error) {
+        console.error("❌ Error in selection handler:", error);
+      }
+    };
+
+    // Poll iga 500ms
+    const interval = setInterval(handleSelectionChange, 500);
+    
+    // Initial check
+    handleSelectionChange();
 
     return () => clearInterval(interval);
   }, [tcApi]);
