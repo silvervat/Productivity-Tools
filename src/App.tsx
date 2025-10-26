@@ -29,58 +29,65 @@ function App() {
 
     console.log("Setting up selection listener");
 
-    // Handler for selection changes
     const handleSelectionChange = async () => {
       try {
-        console.log("Selection changed - fetching properties");
+        console.log("Selection changed");
         
-        // Hangi propetised otse - see on kõige lihtne variant
-        const selector = {
-          output: { loadProperties: true }
-        };
-        
-        const objects = await tcApi.getSelectedObjects(selector);
-        if (objects && objects.length > 0) {
+        let objects: ObjectProperties[] = [];
+
+        try {
+          const selector = { output: { loadProperties: true } };
+          const result = await (tcApi as any).getSelectedObjects?.(selector);
+          if (result && result.length > 0) {
+            objects = result;
+            console.log("Got objects via getSelectedObjects");
+          }
+        } catch (e1) {
+          console.log("getSelectedObjects not available");
+        }
+
+        if (objects.length > 0) {
           setSelectedObjects(objects);
           console.log("Selected objects count:", objects.length);
-          console.log("First object properties:", objects[0].properties);
         } else {
-          console.log("No objects selected");
           setSelectedObjects([]);
         }
       } catch (error) {
-        console.error("Error getting selected objects:", error);
+        console.error("Error in selection handler:", error);
         setSelectedObjects([]);
       }
     };
 
-    // Try to set up listener using available method
     let removeListener: (() => void) | null = null;
 
     if ((tcApi as any).on) {
       console.log("Using .on() method");
       (tcApi as any).on("selectionChanged", handleSelectionChange);
       removeListener = () => {
-        if ((tcApi as any).off) {
-          (tcApi as any).off("selectionChanged", handleSelectionChange);
+        try {
+          if ((tcApi as any).off) {
+            (tcApi as any).off("selectionChanged", handleSelectionChange);
+          }
+        } catch (e) {
+          console.error("Error removing listener:", e);
         }
       };
     } else if ((tcApi as any).addEventListener) {
       console.log("Using .addEventListener() method");
       (tcApi as any).addEventListener("selectionChanged", handleSelectionChange);
       removeListener = () => {
-        if ((tcApi as any).removeEventListener) {
-          (tcApi as any).removeEventListener("selectionChanged", handleSelectionChange);
+        try {
+          if ((tcApi as any).removeEventListener) {
+            (tcApi as any).removeEventListener("selectionChanged", handleSelectionChange);
+          }
+        } catch (e) {
+          console.error("Error removing listener:", e);
         }
       };
-    } else {
-      console.warn("No event listener method available");
     }
 
-    // Initial check for selection
     handleSelectionChange();
 
-    // Cleanup
     return () => {
       if (removeListener) {
         removeListener();
