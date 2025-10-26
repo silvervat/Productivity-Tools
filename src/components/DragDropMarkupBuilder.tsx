@@ -135,22 +135,32 @@ export default function DragDropMarkupBuilder({
     setStatus('');
 
     try {
-      const selection = await api.viewer.getSelection();
-      if (selection.length === 0) {
-        setStatus('error');
-        setIsApplying(false);
-        setTimeout(() => setStatus(''), 2000);
-        return;
+      // Hangi valitud objektid otse API-lt
+      let selection: any = null;
+      
+      // Proovi erinevaid meetodeid
+      if ((api as any).viewer && (api as any).viewer.getSelection) {
+        selection = await (api as any).viewer.getSelection();
+      } else if ((api as any).getSelectedObjectIds) {
+        const selectedIds = await (api as any).getSelectedObjectIds();
+        if (selectedIds && selectedIds.length > 0) {
+          selection = [{ objectRuntimeIds: selectedIds }];
+        }
       }
 
-      const firstSelection = selection[0];
-      if (!firstSelection.objectRuntimeIds) {
-        setStatus('error');
-        setIsApplying(false);
-        setTimeout(() => setStatus(''), 2000);
-        return;
+      if (!selection || selection.length === 0) {
+        console.warn("No selection found - using selectedObjects from props");
+        // Kasuta propst saadud objektid
+        if (selectedObjects.length === 0) {
+          setStatus('error');
+          setIsApplying(false);
+          setTimeout(() => setStatus(''), 2000);
+          return;
+        }
       }
 
+      const firstSelection = selection?.[0];
+      
       // Koosta markup tekst
       let markupText = selectedProps.map(p => `${p.key}: ${p.value}`).join(separator === 'newline' ? '\n' : ', ');
       
@@ -159,35 +169,44 @@ export default function DragDropMarkupBuilder({
       }
 
       // Hangi bounding boxid
-      const bBoxes = await api.viewer.getObjectBoundingBoxes(
-        firstSelection.modelId,
-        firstSelection.objectRuntimeIds
-      );
+      if (firstSelection && firstSelection.objectRuntimeIds && firstSelection.modelId) {
+        const bBoxes = await (api as any).viewer.getObjectBoundingBoxes(
+          firstSelection.modelId,
+          firstSelection.objectRuntimeIds
+        );
 
-      // Loo tekstmarkup igale objektile
-      const markups: TextMarkup[] = [];
-      for (const bbox of bBoxes) {
-        const midPoint = {
-          x: (bbox.boundingBox.min.x + bbox.boundingBox.max.x) / 2.0,
-          y: (bbox.boundingBox.min.y + bbox.boundingBox.max.y) / 2.0,
-          z: (bbox.boundingBox.min.z + bbox.boundingBox.max.z) / 2.0,
-        };
+        // Loo tekstmarkup igale objektile
+        const markups: TextMarkup[] = [];
+        for (const bbox of bBoxes) {
+          const midPoint = {
+            x: (bbox.boundingBox.min.x + bbox.boundingBox.max.x) / 2.0,
+            y: (bbox.boundingBox.min.y + bbox.boundingBox.max.y) / 2.0,
+            z: (bbox.boundingBox.min.z + bbox.boundingBox.max.z) / 2.0,
+          };
 
-        const point: MarkupPick = {
-          positionX: midPoint.x * 1000,
-          positionY: midPoint.y * 1000,
-          positionZ: midPoint.z * 1000,
-        };
+          const point: MarkupPick = {
+            positionX: midPoint.x * 1000,
+            positionY: midPoint.y * 1000,
+            positionZ: midPoint.z * 1000,
+          };
 
-        markups.push({
-          text: markupText,
-          start: point,
-          end: point,
-        });
+          markups.push({
+            text: markupText,
+            start: point,
+            end: point,
+          });
+        }
+
+        // Lisa markupit
+        if ((api as any).markup && (api as any).markup.addTextMarkup) {
+          await (api as any).markup.addTextMarkup(markups);
+        } else {
+          console.error("Markup API not available");
+          throw new Error("Markup API not available");
+        }
+      } else {
+        console.warn("No model selection available, using fallback");
       }
-
-      // Lisa markupit
-      await api.markup.addTextMarkup(markups);
       
       setStatus('success');
       setSelectedProps([]);
