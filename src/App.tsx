@@ -27,38 +27,63 @@ function App() {
   useEffect(() => {
     if (!tcApi) return;
 
-    // AUTOMAATNE: Kuulata mudelisse valitud objektide muudatusi
+    console.log("Setting up selection listener");
+
+    // Handler for selection changes
     const handleSelectionChange = async () => {
-      console.log("Selection changed");
       try {
-        const selection = await tcApi.viewer.getSelection();
-        if (selection.length > 0) {
-          const firstSelection = selection[0];
-          if (firstSelection.objectRuntimeIds && firstSelection.objectRuntimeIds.length > 0) {
-            const objectSelector = {
-              output: { loadProperties: true }
-            };
-            
-            const objects = await tcApi.getSelectedObjects(objectSelector);
-            if (objects && objects.length > 0) {
-              setSelectedObjects(objects);
-              console.log("Selected objects with properties:", objects);
-            }
-          }
+        console.log("Selection changed - fetching properties");
+        
+        // Hangi propetised otse
+        const selector = {
+          output: { loadProperties: true }
+        };
+        
+        const objects = await tcApi.getSelectedObjects(selector);
+        if (objects && objects.length > 0) {
+          setSelectedObjects(objects);
+          console.log("Selected objects count:", objects.length);
+        } else {
+          console.log("No objects selected");
+          setSelectedObjects([]);
         }
       } catch (error) {
         console.error("Error getting selected objects:", error);
+        setSelectedObjects([]);
       }
     };
 
-    // Kuula selektiooni muudatusi
-    tcApi.addEventListener("selectionChanged", handleSelectionChange);
+    // Try to set up listener using available method
+    let removeListener: (() => void) | null = null;
 
-    // Initial check
+    if ((tcApi as any).on) {
+      console.log("Using .on() method");
+      (tcApi as any).on("selectionChanged", handleSelectionChange);
+      removeListener = () => {
+        if ((tcApi as any).off) {
+          (tcApi as any).off("selectionChanged", handleSelectionChange);
+        }
+      };
+    } else if ((tcApi as any).addEventListener) {
+      console.log("Using .addEventListener() method");
+      (tcApi as any).addEventListener("selectionChanged", handleSelectionChange);
+      removeListener = () => {
+        if ((tcApi as any).removeEventListener) {
+          (tcApi as any).removeEventListener("selectionChanged", handleSelectionChange);
+        }
+      };
+    } else {
+      console.warn("No event listener method available");
+    }
+
+    // Initial check for selection
     handleSelectionChange();
 
+    // Cleanup
     return () => {
-      tcApi.removeEventListener("selectionChanged", handleSelectionChange);
+      if (removeListener) {
+        removeListener();
+      }
     };
   }, [tcApi]);
 
