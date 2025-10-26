@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';  // Eemaldasin useCallback, kui pole kasutusel
 import type { ObjectProperties, WorkspaceAPI } from 'trimble-connect-workspace-api';
+import { MarkupAPI, TextMarkup } from 'trimble-connect-workspace-api';
 import './DragDropMarkupBuilder.css';
 
 interface Property {
@@ -13,6 +14,7 @@ interface DragDropMarkupBuilderProps {
   language: 'et' | 'en';
 }
 
+// Tõlked (sama nagu varem)
 const translations = {
   et: {
     title: '🎨 Markup Builder - Drag & Drop',
@@ -134,7 +136,7 @@ export default function DragDropMarkupBuilder({
         const setName = (propSet as any).name || 'Unknown';
         if ((propSet as any).properties) {
           for (const prop of (propSet as any).properties) {
-            const propName = (prop as any).name || 'Unknown';
+            const propName = (prop as any).name || 'Unknown';  // Eemaldasin kasutamata propName'i – kasuta siin kui vaja
             const propValue = (prop as any).value;
             processValue(propValue, setName);
           }
@@ -161,11 +163,7 @@ export default function DragDropMarkupBuilder({
     setPreviewText(preview);
   };
 
-  const handleDragStart = (
-    e: React.DragEvent,
-    property: Property,
-    source: 'available' | 'selected'
-  ) => {
+  const handleDragStart = (e: React.DragEvent, property: Property, source: 'available' | 'selected') => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('property', JSON.stringify(property));
     e.dataTransfer.setData('source', source);
@@ -178,23 +176,31 @@ export default function DragDropMarkupBuilder({
 
   const handleDropOnSelected = (e: React.DragEvent) => {
     e.preventDefault();
-    const property = JSON.parse(e.dataTransfer.getData('property'));
-    const source = e.dataTransfer.getData('source');
+    try {
+      const property = JSON.parse(e.dataTransfer.getData('property'));
+      const source = e.dataTransfer.getData('source');
 
-    if (
-      source === 'available' &&
-      !selectedProperties.find((p) => p.key === property.key)
-    ) {
-      setSelectedProperties([...selectedProperties, property]);
+      if (
+        source === 'available' &&
+        !selectedProperties.find((p) => p.key === property.key)
+      ) {
+        setSelectedProperties([...selectedProperties, property]);
+      }
+    } catch (error) {
+      console.error('Drop viga:', error);
     }
   };
 
   const handleDropOnAvailable = (e: React.DragEvent) => {
     e.preventDefault();
-    const property = JSON.parse(e.dataTransfer.getData('property'));
+    try {
+      const property = JSON.parse(e.dataTransfer.getData('property'));
 
-    if (e.dataTransfer.getData('source') === 'selected') {
-      removeProperty(property.key);
+      if (e.dataTransfer.getData('source') === 'selected') {
+        removeProperty(property.key);
+      }
+    } catch (error) {
+      console.error('Drop viga:', error);
     }
   };
 
@@ -217,29 +223,23 @@ export default function DragDropMarkupBuilder({
     setMessage('');
 
     try {
-      // Get GUIDs from selected objects
+      const markupApi = await MarkupAPI.getInstance();
+
       const guids = selectedObjects.map((obj) => obj.id);
 
-      // Create text markups
-      const markups = guids.map((guid, index) => ({
+      const markups: TextMarkup[] = guids.map((guid, index) => ({
         id: `markup_${guid}_${Date.now()}_${index}`,
         text: previewText,
-        color: markupColor,
-        position: {
-          x: 0,
-          y: 0,
-          z: 0,
-        },
+        color: markupColor as any,
+        position: selectedObjects[index]?.position || { x: 0, y: 0, z: 0 },
       }));
 
-      // Apply markups via API
-      await (api.viewer as any).addOrUpdateTextMarkups?.(markups);
+      await markupApi.addOrUpdateTextMarkups(markups);
 
       setMessage(
         t('success', language).replace('{count}', selectedObjects.length.toString())
       );
 
-      // Reset after success
       setTimeout(() => {
         setSelectedProperties([]);
         setAdditionalText('');
