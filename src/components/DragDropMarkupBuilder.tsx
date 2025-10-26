@@ -1,19 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { WorkspaceAPI, Box3, Vector3, MarkupPick, TextMarkup } from "trimble-connect-workspace-api";
-import { ModusButton, ModusCheckbox, ModusChip, ModusToast, ModusSpinner } from "@trimble-oss/modus-react-components";
+import React, { useEffect, useRef, useState } from "react";
+import type { WorkspaceAPI, Box3, Vector3, MarkupPick } from "trimble-connect-workspace-api";
 
 /*
-  DragDropMarkupBuilder – "klotsidega" markupite looja (kirjutamata)
-  -----------------------------------------------------------------
-  - AVASTA: loeb valitud objektide pSetid ning teeb neist klotsid (chips)
-  - Lohista/kliki klotsid mustri-alale; järjekord = teksti järjekord
-  - Kiirseparaatorid: " – ", " | ", tühik, reavahetus (nuppudena)
-  - LOO MARKUPID: renderdab iga detaili jaoks teksti ning joonistab TextMarkup bbox keskpunkti
+  DragDropMarkupBuilder – puhas React / HTML UI
+  ---------------------------------------------
+  - AVASTA: loeb valitud objektide pSetid -> propsi võtmete loend
+  - Klotsid (properties) + separaatorid (+ reavahetus) -> kasutaja ladub mustri
+  - Eelvaade esimese valitud objekti põhjal
+  - LOO MARKUPID: joonistab tekstimarkupid bbox keskpunkti
   - Skaala lüliti: mm (1x) vs m (1000x)
-  - Duplikaat-siltide vältimine sama mudeli piires
+  - Duplikaat-siltide vältimine
 */
 
-// ---- Abifunktsioonid ----
+// ---- Abi ----
 function midPoint(b: Box3): Vector3 {
   return {
     x: (b.min.x + b.max.x) / 2,
@@ -21,7 +20,10 @@ function midPoint(b: Box3): Vector3 {
     z: (b.min.z + b.max.z) / 2,
   };
 }
-function toStr(v: any): string { return v == null ? "" : String(v); }
+
+function toStr(v: any): string {
+  return v == null ? "" : String(v);
+}
 
 async function flattenPropsForObject(
   api: WorkspaceAPI,
@@ -49,7 +51,7 @@ async function flattenPropsForObject(
 async function discoverKeys(
   api: WorkspaceAPI,
   selection: Array<{ modelId: string; objectRuntimeIds: number[] }>
-) {
+): Promise<string[]> {
   const freq = new Map<string, number>();
   for (const g of selection) {
     for (const rid of g.objectRuntimeIds) {
@@ -68,63 +70,11 @@ async function discoverKeys(
   );
 }
 
-async function renderForObject(
-  api: WorkspaceAPI,
-  modelId: string,
-  rid: number,
-  blocks: Block[]
-): Promise<string> {
-  const flat = await flattenPropsForObject(api, modelId, rid);
-
-  // Kui kasutaja valib {Mark} (ilma setita), proovi sobitada esimene ".Mark" lõppev võti
-  const pickFirstBySuffix = (suffix: string) => {
-    const k = Object.keys(flat).find((full) => full.endsWith(`.${suffix}`));
-    return k ? toStr(flat[k]) : "";
-  };
-
-  const parts: string[] = [];
-  for (const b of blocks) {
-    if (b.kind === "prop") {
-      if (flat[b.key] !== undefined) parts.push(toStr(flat[b.key]));
-      else parts.push(pickFirstBySuffix(b.key));
-    } else if (b.kind === "sep") {
-      parts.push(b.text);
-    } else if (b.kind === "newline") {
-      parts.push("\n");
-    }
-  }
-  return parts.join("").replace(/[ \t]+/g, " ").trim();
-}
-
-async function createTextMarkup(
-  api: WorkspaceAPI,
-  modelId: string,
-  rid: number,
-  text: string,
-  scale: number
-): Promise<TextMarkup | null> {
-  if (!text) return null;
-  const [bbox] = await api.viewer.getObjectBoundingBoxes(modelId, [rid]);
-  const p = midPoint(bbox.boundingBox);
-  const pick: MarkupPick = {
-    positionX: p.x * scale,
-    positionY: p.y * scale,
-    positionZ: p.z * scale,
-  };
-  try {
-    return (await api.markup.addTextMarkup(text, pick)) ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// ---- Klotsi tüübid ----
-export type Block =
+type Block =
   | { kind: "prop"; key: string }
   | { kind: "sep"; text: string }
   | { kind: "newline" };
 
-// Kiirseparaatorid – ilma kirjutamata
 const QUICK_SEPS: Array<{ label: string; text: string }> = [
   { label: "tühik", text: " " },
   { label: "–", text: " – " },
@@ -138,10 +88,10 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [scaleIsMM, setScaleIsMM] = useState(true);
   const [dedupe, setDedupe] = useState(true);
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<string>("");
+
   const selectionRef = useRef<Array<{ modelId: string; objectRuntimeIds: number[] }>>([]);
 
-  // Esmane valik mällu, et eelvaade saaks kohe töötada
   useEffect(() => {
     (async () => {
       selectionRef.current = await readSelection();
@@ -175,11 +125,12 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
       setToast("Avastamine ebaõnnestus.");
     } finally {
       setLoading(false);
+      setTimeout(() => setToast(""), 2500);
     }
   }
 
   // Muster – lisamine/lohistamine/kustutamine
-  function onChipClickAdd(k: string) {
+  function addProp(k: string) {
     setBlocks((b) => [...b, { kind: "prop", key: k }]);
   }
   function addSep(text: string) {
@@ -188,45 +139,98 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
   function addNewline() {
     setBlocks((b) => [...b, { kind: "newline" }]);
   }
-
-  function onDragStart(e: React.DragEvent, idx: number) {
-    e.dataTransfer.setData("text/plain", String(idx));
-  }
-  function onDrop(e: React.DragEvent, targetIdx: number) {
-    const fromIdx = Number(e.dataTransfer.getData("text/plain"));
-    if (Number.isNaN(fromIdx)) return;
+  function moveBlock(from: number, to: number) {
     setBlocks((prev) => {
       const arr = [...prev];
-      const [moved] = arr.splice(fromIdx, 1);
-      arr.splice(targetIdx, 0, moved);
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
       return arr;
     });
   }
-  function onDelete(idx: number) {
+  function removeBlock(idx: number) {
     setBlocks((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  // Eelvaade (esimese valitud objekti põhjal)
-  async function buildPreview() {
-    const sel = selectionRef.current;
-    if (!sel.length || !sel[0].objectRuntimeIds.length) return "";
-    const g = sel[0];
-    const rid = g.objectRuntimeIds[0];
-    return await renderForObject(api, g.modelId, rid, blocks);
+  // Drag support
+  const dragIndex = useRef<number | null>(null);
+  function onDragStart(idx: number) {
+    dragIndex.current = idx;
   }
-  const [livePreview, setLivePreview] = useState("");
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+  }
+  function onDrop(idx: number) {
+    if (dragIndex.current === null) return;
+    moveBlock(dragIndex.current, idx);
+    dragIndex.current = null;
+  }
+
+  // Render malli teksti konkreetsele objektile
+  async function renderForObject(
+    modelId: string,
+    rid: number,
+    seq: Block[]
+  ): Promise<string> {
+    const flat = await flattenPropsForObject(api, modelId, rid);
+
+    const pickFirstBySuffix = (suffix: string) => {
+      const k = Object.keys(flat).find((full) => full.endsWith(`.${suffix}`));
+      return k ? toStr(flat[k]) : "";
+    };
+
+    const parts: string[] = [];
+    for (const b of seq) {
+      if (b.kind === "prop") {
+        if (flat[b.key] !== undefined) parts.push(toStr(flat[b.key]));
+        else parts.push(pickFirstBySuffix(b.key));
+      } else if (b.kind === "sep") {
+        parts.push(b.text);
+      } else {
+        parts.push("\n");
+      }
+    }
+    return parts.join("").replace(/[ \t]+/g, " ").trim();
+  }
+
+  async function createTextMarkup(
+    modelId: string,
+    rid: number,
+    text: string,
+    scale: number
+  ) {
+    const [bbox] = await api.viewer.getObjectBoundingBoxes(modelId, [rid]);
+    const p = midPoint(bbox.boundingBox);
+    const pick: MarkupPick = {
+      positionX: p.x * scale,
+      positionY: p.y * scale,
+      positionZ: p.z * scale,
+    };
+    await api.markup.addTextMarkup(text, pick);
+  }
+
+  const [preview, setPreview] = useState<string>("");
   useEffect(() => {
     (async () => {
-      setLivePreview(await buildPreview());
+      const sel = selectionRef.current;
+      if (!sel.length || !sel[0].objectRuntimeIds.length) {
+        setPreview("");
+        return;
+      }
+      const g = sel[0];
+      const rid = g.objectRuntimeIds[0];
+      const txt = await renderForObject(g.modelId, rid, blocks);
+      setPreview(txt);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blocks]);
 
   async function handleCreate() {
     setLoading(true);
     try {
-      const sel = selectionRef.current.length
-        ? selectionRef.current
-        : await readSelection();
+      const sel =
+        selectionRef.current.length > 0
+          ? selectionRef.current
+          : await readSelection();
       if (!sel.length) {
         setToast("Valik on tühi.");
         return;
@@ -237,54 +241,57 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
 
       for (const g of sel) {
         for (const rid of g.objectRuntimeIds) {
-          const text = await renderForObject(api, g.modelId, rid, blocks);
-          const label = text.trim();
+          const label = (await renderForObject(g.modelId, rid, blocks)).trim();
           if (!label) continue;
-
           const key = `${g.modelId}::${label}`;
           if (dedupe && seen.has(key)) continue;
 
-          const mk = await createTextMarkup(api, g.modelId, rid, label, scale);
-          if (mk) {
-            created++;
-            seen.add(key);
-          }
+          await createTextMarkup(g.modelId, rid, label, scale);
+          created++;
+          seen.add(key);
         }
       }
-
       setToast(`Loodud markupe: ${created}.`);
     } catch {
       setToast("Markuppide loomine ebaõnnestus.");
     } finally {
       setLoading(false);
+      setTimeout(() => setToast(""), 2500);
     }
   }
 
   return (
-    <div style={{ display: "grid", gap: 12, padding: 12 }}>
-      <h3 style={{ margin: 0 }}>Drag & Drop Markup Builder</h3>
-
+    <div style={{ display: "grid", gap: 12 }}>
+      {/* Tööriistariba */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <ModusButton onClick={handleDiscover} disabled={loading}>
-          {loading ? <ModusSpinner size="s" /> : "AVASTA omadused"}
-        </ModusButton>
-        <ModusCheckbox
-          label="Skaala = mm (API ootab mm)"
-          checked={scaleIsMM}
-          onValueChange={(e: any) => setScaleIsMM(Boolean(e?.detail?.checked))}
-        />
-        <ModusCheckbox
-          label="Väldi duplikaat-silte"
-          checked={dedupe}
-          onValueChange={(e: any) => setDedupe(Boolean(e?.detail?.checked))}
-        />
+        <button onClick={handleDiscover} disabled={loading}>
+          {loading ? "..." : "AVASTA omadused"}
+        </button>
+
+        <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={scaleIsMM}
+            onChange={(e) => setScaleIsMM(e.currentTarget.checked)}
+          />
+          Skaala = mm (API ootab mm)
+        </label>
+
+        <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+          <input
+            type="checkbox"
+            checked={dedupe}
+            onChange={(e) => setDedupe(e.currentTarget.checked)}
+          />
+          Väldi duplikaat-silte
+        </label>
       </div>
 
-      {/* Klotsid – avastatud väljad */}
+      {/* Klotsid */}
       {keys.length > 0 && (
         <div>
           <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
-            Lohista või kliki klotsil, et lisada mustrisse:
+            Klõpsa või lohista klots mustrisse:
           </div>
           <div
             style={{
@@ -299,30 +306,62 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
             }}
           >
             {keys.map((k) => (
-              <ModusChip
+              <button
                 key={k}
-                label={k}
-                onClick={() => onChipClickAdd(k)}
                 draggable
-                onDragStart={(e: any) => {
-                  e.dataTransfer.setData("text/prop", k);
+                onDragStart={() => {
+                  // lihtsustatud – kasutame clicki lisamiseks
                 }}
-              />
+                onClick={() => addProp(k)}
+                style={{
+                  border: "1px solid #ddd",
+                  borderRadius: 16,
+                  padding: "4px 10px",
+                  background: "white",
+                  cursor: "pointer",
+                }}
+                title="Lisa mustrisse"
+              >
+                {k}
+              </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Kiirseparaatorid */}
+      {/* Separaatorid */}
       <div>
-        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>
-          Eraldusklotsid:
-        </div>
+        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Eraldusklotsid:</div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {QUICK_SEPS.map((s) => (
-            <ModusChip key={s.label} label={s.label} onClick={() => addSep(s.text)} />
+            <button
+              key={s.label}
+              onClick={() => addSep(s.text)}
+              style={{
+                border: "1px solid #ddd",
+                borderRadius: 16,
+                padding: "4px 10px",
+                background: "white",
+                cursor: "pointer",
+              }}
+              title="Lisa eraldaja"
+            >
+              {s.label}
+            </button>
           ))}
-          <ModusChip label="reavahetus" onClick={addNewline} />
+          <button
+            onClick={addNewline}
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 16,
+              padding: "4px 10px",
+              background: "white",
+              cursor: "pointer",
+            }}
+            title="Lisa reavahetus"
+          >
+            reavahetus
+          </button>
         </div>
       </div>
 
@@ -341,19 +380,19 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
             flexWrap: "wrap",
             gap: 8,
           }}
+          onDragOver={onDragOver}
         >
           {blocks.length === 0 && (
             <div style={{ opacity: 0.5, fontSize: 12 }}>
-              Lohista ülaltoodud klotsid siia…
+              Lisa ülaltoodud klotsid siia…
             </div>
           )}
           {blocks.map((b, idx) => (
             <div
               key={idx}
               draggable
-              onDragStart={(e) => onDragStart(e, idx)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => onDrop(e, idx)}
+              onDragStart={() => onDragStart(idx)}
+              onDrop={() => onDrop(idx)}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -361,18 +400,18 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
                 padding: "4px 8px",
                 border: "1px solid #e0e0e0",
                 borderRadius: 16,
+                background: "#fff",
               }}
+              title="Lohista ümber, × eemaldab"
             >
               <span style={{ fontFamily: "monospace" }}>
-                {b.kind === "prop"
-                  ? `{${(b as any).key}}`
-                  : b.kind === "sep"
-                  ? toStr((b as any).text)
-                  : "\\n"}
+                {b.kind === "prop" ? `{${(b as any).key}}` : b.kind === "sep" ? (b as any).text : "\\n"}
               </span>
               <button
-                onClick={() => onDelete(idx)}
+                onClick={() => removeBlock(idx)}
                 style={{ border: 0, background: "transparent", cursor: "pointer", opacity: 0.6 }}
+                aria-label="Eemalda"
+                title="Eemalda"
               >
                 ×
               </button>
@@ -382,7 +421,7 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
       </div>
 
       {/* Eelvaade */}
-      <div style={{ fontSize: 12, opacity: 0.7 }}>Eelvaade esimeselt valitud objektilt:</div>
+      <div style={{ fontSize: 12, opacity: 0.7 }}>Eelvaade (1. valitud objekt):</div>
       <pre
         style={{
           whiteSpace: "pre-wrap",
@@ -394,19 +433,33 @@ export default function DragDropMarkupBuilder({ api }: { api: WorkspaceAPI }) {
           overflow: "auto",
         }}
       >
-        {livePreview || "(tühi)"}
+        {preview || "(tühi)"}
       </pre>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <ModusButton color="primary" onClick={handleCreate} disabled={loading || blocks.length === 0}>
-          {loading ? <ModusSpinner size="s" /> : "LOO MARKUPID"}
-        </ModusButton>
-        <ModusButton onClick={() => setBlocks([])} disabled={loading}>
+        <button onClick={handleCreate} disabled={loading || blocks.length === 0}>
+          {loading ? "Töötlen…" : "LOO MARKUPID"}
+        </button>
+        <button onClick={() => setBlocks([])} disabled={loading}>
           Tühjenda muster
-        </ModusButton>
+        </button>
       </div>
 
-      {toast && <ModusToast open text={toast} onClose={() => setToast("")} />}
+      {toast && (
+        <div
+          style={{
+            background: "#333",
+            color: "white",
+            padding: "8px 12px",
+            borderRadius: 6,
+            position: "fixed",
+            right: 12,
+            bottom: 12,
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
