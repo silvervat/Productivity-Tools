@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ObjectProperties, WorkspaceAPI } from 'trimble-connect-workspace-api';
+import { TextMarkup, MarkupPick } from 'trimble-connect-workspace-api';
 import './DragDropMarkupBuilder.css';
 
 interface Property {
@@ -16,52 +17,36 @@ interface DragDropMarkupBuilderProps {
 const translations = {
   et: {
     title: '🎨 Markup Builder - Drag & Drop',
-    noObjects: 'Palun valige objektid otsingust',
     available: 'Saadaolevad omadused',
     selected: 'Valitud omadused',
-    dragHint: 'Lohistage omadused siia',
-    settings: '⚙️ Seadistused',
+    preview: '👁️ Eelvaade:',
     additionalText: 'Täiendav tekst:',
-    additionalPlaceholder: 'Nt: "TÄHELEPANU" või "KONTROLL"',
     markupColor: 'Markupi värv:',
     separator: 'Eraldaja:',
     separatorComma: 'Koma',
     separatorNewline: 'Uus rida',
-    preview: '👁️ Eelvaade:',
-    empty: '(Tühi)',
     applyButton: 'LISA MARKEERING',
     applying: 'Lisatakse...',
-    success: '✓ Markup lisatud {count} objektile',
+    success: '✓ Markup lisatud',
     error: 'Viga markupi lisamisel',
-    loading: 'Omaduste laadimine...',
-    noProperties: 'Omadusi ei leitud',
+    noObjects: 'Valige objekt mudelist',
   },
   en: {
     title: '🎨 Markup Builder - Drag & Drop',
-    noObjects: 'Please select objects from search',
     available: 'Available properties',
     selected: 'Selected properties',
-    dragHint: 'Drag properties here',
-    settings: '⚙️ Settings',
+    preview: '👁️ Preview:',
     additionalText: 'Additional text:',
-    additionalPlaceholder: 'E.g. "ATTENTION" or "CHECK"',
     markupColor: 'Markup color:',
     separator: 'Separator:',
     separatorComma: 'Comma',
     separatorNewline: 'New line',
-    preview: '👁️ Preview:',
-    empty: '(Empty)',
     applyButton: 'ADD MARKUP',
     applying: 'Adding...',
-    success: '✓ Markup added to {count} objects',
+    success: '✓ Markup added',
     error: 'Error adding markup',
-    loading: 'Loading properties...',
-    noProperties: 'No properties found',
+    noObjects: 'Select object from model',
   },
-};
-
-const t = (key: keyof typeof translations.et, language: 'et' | 'en') => {
-  return translations[language][key];
 };
 
 export default function DragDropMarkupBuilder({
@@ -69,343 +54,280 @@ export default function DragDropMarkupBuilder({
   selectedObjects,
   language,
 }: DragDropMarkupBuilderProps) {
-  const [availableProperties, setAvailableProperties] = useState<Property[]>([]);
-  const [selectedProperties, setSelectedProperties] = useState<Property[]>([]);
+  const t = translations[language];
+  const [availableProps, setAvailableProps] = useState<Property[]>([]);
+  const [selectedProps, setSelectedProps] = useState<Property[]>([]);
   const [additionalText, setAdditionalText] = useState('');
+  const [separator, setSeparator] = useState(',');
   const [markupColor, setMarkupColor] = useState('#FF0000');
-  const [separator, setSeparator] = useState<'comma' | 'newline'>('comma');
-  const [previewText, setPreviewText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [isApplying, setIsApplying] = useState(false);
+  const [status, setStatus] = useState('');
 
-  // Fetch properties when selected objects change
+  // Ekstraheerivad propetised valitud objektidest
   useEffect(() => {
-    fetchProperties();
-  }, [selectedObjects]);
-
-  // Update preview when properties, text, or separator change
-  useEffect(() => {
-    updatePreview();
-  }, [selectedProperties, additionalText, separator]);
-
-  const fetchProperties = async () => {
-    if (!selectedObjects || selectedObjects.length === 0) {
-      setAvailableProperties([]);
+    if (selectedObjects.length === 0) {
+      setAvailableProps([]);
       return;
     }
 
-    setLoading(true);
-    try {
-      const firstObject = selectedObjects[0];
-      const flattened = flattenProperties(firstObject);
-      setAvailableProperties(flattened);
-    } catch (error) {
-      console.error('Error fetching properties:', error);
-      setMessage(t('error', language));
-    } finally {
-      setLoading(false);
-    }
-  };
+    const props: Property[] = [];
+    const seenKeys = new Set<string>();
 
-  const flattenProperties = (obj: ObjectProperties, prefix = ''): Property[] => {
-    const result: Property[] = [];
-
-    const processValue = (value: any, key: string) => {
-      if (value === null || value === undefined || value === '') {
-        return;
-      }
-
-      const fullKey = prefix ? `${prefix}.${key}` : key;
-
-      if (typeof value === 'object' && !Array.isArray(value)) {
-        for (const [nestedKey, nestedValue] of Object.entries(value)) {
-          processValue(nestedValue, `${fullKey}.${nestedKey}`);
-        }
-      } else if (!Array.isArray(value)) {
-        result.push({
-          key: fullKey,
-          value: String(value).trim(),
+    selectedObjects.forEach((obj) => {
+      // Tekla .trb failide propertySet array
+      if (obj.properties && Array.isArray(obj.properties)) {
+        obj.properties.forEach((propSet: any) => {
+          const setName = propSet.name || 'Unknown';
+          if (propSet.properties && Array.isArray(propSet.properties)) {
+            propSet.properties.forEach((prop: any) => {
+              const key = `${setName}.${prop.name}`;
+              const value = prop.value || '';
+              if (!seenKeys.has(key)) {
+                props.push({ key, value });
+                seenKeys.add(key);
+              }
+            });
+          }
         });
       }
-    };
-
-    if (obj.properties) {
-      for (const propSet of obj.properties) {
-        const setName = (propSet as any).name || 'Unknown';
-        if ((propSet as any).properties) {
-          for (const prop of (propSet as any).properties) {
-            const propValue = (prop as any).value;
-            processValue(propValue, setName);
+      // IFC/DWG failide flat struktuuri
+      else if (typeof obj.properties === 'object' && obj.properties !== null) {
+        Object.entries(obj.properties).forEach(([key, value]: [string, any]) => {
+          if (!seenKeys.has(key)) {
+            props.push({ key, value: value?.toString() || '' });
+            seenKeys.add(key);
           }
-        }
+        });
       }
-    }
+    });
 
-    return result;
-  };
+    setAvailableProps(props);
+  }, [selectedObjects]);
 
-  const updatePreview = () => {
-    if (selectedProperties.length === 0) {
-      setPreviewText(additionalText);
-      return;
-    }
-
-    const sepString = separator === 'comma' ? ' | ' : '\n';
-    let preview = selectedProperties.map((p) => p.value).join(sepString);
-
-    if (additionalText) {
-      preview = `${additionalText} | ${preview}`;
-    }
-
-    setPreviewText(preview);
-  };
-
-  const handleDragStart = (
-    e: React.DragEvent,
-    property: Property,
-    source: 'available' | 'selected'
-  ) => {
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('property', JSON.stringify(property));
-    e.dataTransfer.setData('source', source);
+  // Lohistamise handling
+  const handleDragStart = (e: React.DragEvent, prop: Property) => {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('property', JSON.stringify(prop));
   };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = 'copy';
   };
 
-  const handleDropOnSelected = (e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    const property = JSON.parse(e.dataTransfer.getData('property'));
-    const source = e.dataTransfer.getData('source');
-
-    if (
-      source === 'available' &&
-      !selectedProperties.find((p) => p.key === property.key)
-    ) {
-      setSelectedProperties([...selectedProperties, property]);
+    const prop = JSON.parse(e.dataTransfer.getData('property'));
+    if (!selectedProps.find(p => p.key === prop.key)) {
+      setSelectedProps([...selectedProps, prop]);
     }
   };
 
-  const handleDropOnAvailable = (e: React.DragEvent) => {
-    e.preventDefault();
-    const property = JSON.parse(e.dataTransfer.getData('property'));
-
-    if (e.dataTransfer.getData('source') === 'selected') {
-      removeProperty(property.key);
-    }
-  };
-
-  const removeProperty = (key: string) => {
-    setSelectedProperties(selectedProperties.filter((p) => p.key !== key));
-  };
-
+  // Markupi rakendamine
   const applyMarkup = async () => {
-    if (!previewText) {
-      setMessage(t('error', language));
+    if (selectedObjects.length === 0) {
+      setStatus('error');
+      setTimeout(() => setStatus(''), 2000);
       return;
     }
 
-    if (!selectedObjects || selectedObjects.length === 0) {
-      setMessage(t('noObjects', language));
-      return;
-    }
-
-    setLoading(true);
-    setMessage('');
+    setIsApplying(true);
+    setStatus('');
 
     try {
-      // Get GUIDs from selected objects
-      const guids = selectedObjects.map((obj) => obj.id);
+      const selection = await api.viewer.getSelection();
+      if (selection.length === 0) {
+        setStatus('error');
+        setIsApplying(false);
+        setTimeout(() => setStatus(''), 2000);
+        return;
+      }
 
-      // Create text markups
-      const markups = guids.map((guid, index) => ({
-        id: `markup_${guid}_${Date.now()}_${index}`,
-        text: previewText,
-        color: markupColor,
-        position: {
-          x: 0,
-          y: 0,
-          z: 0,
-        },
-      }));
+      const firstSelection = selection[0];
+      if (!firstSelection.objectRuntimeIds) {
+        setStatus('error');
+        setIsApplying(false);
+        setTimeout(() => setStatus(''), 2000);
+        return;
+      }
 
-      // Apply markups via API
-      await (api.viewer as any).addOrUpdateTextMarkups?.(markups);
+      // Koosta markup tekst
+      let markupText = selectedProps.map(p => `${p.key}: ${p.value}`).join(separator === 'newline' ? '\n' : ', ');
+      
+      if (additionalText) {
+        markupText += (separator === 'newline' ? '\n' : ', ') + additionalText;
+      }
 
-      setMessage(
-        t('success', language).replace('{count}', selectedObjects.length.toString())
+      // Hangi bounding boxid
+      const bBoxes = await api.viewer.getObjectBoundingBoxes(
+        firstSelection.modelId,
+        firstSelection.objectRuntimeIds
       );
 
-      // Reset after success
-      setTimeout(() => {
-        setSelectedProperties([]);
-        setAdditionalText('');
-        setMessage('');
-      }, 2000);
+      // Loo tekstmarkup igale objektile
+      const markups: TextMarkup[] = [];
+      for (const bbox of bBoxes) {
+        const midPoint = {
+          x: (bbox.boundingBox.min.x + bbox.boundingBox.max.x) / 2.0,
+          y: (bbox.boundingBox.min.y + bbox.boundingBox.max.y) / 2.0,
+          z: (bbox.boundingBox.min.z + bbox.boundingBox.max.z) / 2.0,
+        };
+
+        const point: MarkupPick = {
+          positionX: midPoint.x * 1000,
+          positionY: midPoint.y * 1000,
+          positionZ: midPoint.z * 1000,
+        };
+
+        markups.push({
+          text: markupText,
+          start: point,
+          end: point,
+        });
+      }
+
+      // Lisa markupit
+      await api.markup.addTextMarkup(markups);
+      
+      setStatus('success');
+      setSelectedProps([]);
+      setAdditionalText('');
+      setTimeout(() => setStatus(''), 2000);
     } catch (error) {
-      console.error('Error applying markup:', error);
-      setMessage(t('error', language));
+      console.error('Markup error:', error);
+      setStatus('error');
+      setTimeout(() => setStatus(''), 2000);
     } finally {
-      setLoading(false);
+      setIsApplying(false);
     }
   };
 
-  if (!selectedObjects || selectedObjects.length === 0) {
-    return (
-      <div className="ddb-container">
-        <h3 className="ddb-title">{t('title', language)}</h3>
-        <div className="ddb-empty">{t('noObjects', language)}</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="ddb-container">
-      <div className="ddb-header">
-        <h3 className="ddb-title">{t('title', language)}</h3>
-        <span className="ddb-badge">
-          {selectedObjects.length} {language === 'et' ? 'objekti' : 'objects'}
-        </span>
+    <div className='ddb-container'>
+      <div className='ddb-header'>
+        <h2 className='ddb-title'>{t.title}</h2>
+        <span className='ddb-badge'>{selectedObjects.length} objekti</span>
       </div>
 
-      {message && <div className={`ddb-message ${message.includes('✓') ? 'success' : 'error'}`}>{message}</div>}
-
-      {/* Properties Grid */}
-      <div className="ddb-grid">
-        {/* Available Properties */}
-        <div className="ddb-section">
-          <h4 className="ddb-section-title">{t('available', language)}</h4>
-          <div
-            className="ddb-properties-list available"
-            onDragOver={handleDragOver}
-            onDrop={handleDropOnAvailable}
-          >
-            {loading ? (
-              <div className="ddb-placeholder">{t('loading', language)}</div>
-            ) : availableProperties.length === 0 ? (
-              <div className="ddb-placeholder">{t('noProperties', language)}</div>
-            ) : (
-              availableProperties.map((prop, idx) => (
-                <div
-                  key={`avail-${prop.key}-${idx}`}
-                  className="ddb-property-item"
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, prop, 'available')}
-                  title={`${prop.key}: ${prop.value}`}
-                >
-                  <div className="ddb-prop-key">{prop.key}</div>
-                  <div className="ddb-prop-value">{prop.value}</div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Selected Properties */}
-        <div className="ddb-section">
-          <h4 className="ddb-section-title">{t('selected', language)}</h4>
-          <div
-            className="ddb-properties-list selected"
-            onDragOver={handleDragOver}
-            onDrop={handleDropOnSelected}
-          >
-            {selectedProperties.length === 0 ? (
-              <div className="ddb-placeholder">{t('dragHint', language)}</div>
-            ) : (
-              selectedProperties.map((prop, idx) => (
-                <div key={`sel-${prop.key}-${idx}`} className="ddb-property-item selected">
-                  <div className="ddb-prop-content">
-                    <div className="ddb-prop-key">{prop.key}</div>
-                    <div className="ddb-prop-value">{prop.value}</div>
-                  </div>
-                  <button
-                    className="ddb-remove-btn"
-                    onClick={() => removeProperty(prop.key)}
-                    title="Remove"
+      {selectedObjects.length === 0 ? (
+        <div className='ddb-empty'>{t.noObjects}</div>
+      ) : (
+        <>
+          <div className='ddb-grid'>
+            {/* Available Properties */}
+            <div className='ddb-column'>
+              <h3 className='ddb-column-title'>{t.available}</h3>
+              <div className='ddb-list'>
+                {availableProps.map((prop, idx) => (
+                  <div
+                    key={idx}
+                    className='ddb-property'
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, prop)}
+                    title={`${prop.key}: ${prop.value}`}
                   >
-                    ✕
-                  </button>
-                </div>
-              ))
-            )}
+                    <strong>{prop.key}</strong>
+                    <span className='ddb-value'>{prop.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Selected Properties */}
+            <div className='ddb-column'>
+              <h3 className='ddb-column-title'>{t.selected}</h3>
+              <div
+                className='ddb-drop-zone'
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                {selectedProps.length === 0 ? (
+                  <p className='ddb-empty-text'>Lohistage omadused siia</p>
+                ) : (
+                  selectedProps.map((prop, idx) => (
+                    <div key={idx} className='ddb-selected-prop'>
+                      <span>
+                        {prop.key}: {prop.value}
+                      </span>
+                      <button
+                        className='ddb-remove-btn'
+                        onClick={() => setSelectedProps(selectedProps.filter((_, i) => i !== idx))}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Settings */}
-      <div className="ddb-settings">
-        <h4 className="ddb-section-title">{t('settings', language)}</h4>
-
-        <div className="ddb-setting-group">
-          <label htmlFor="additional-text">{t('additionalText', language)}</label>
-          <input
-            id="additional-text"
-            type="text"
-            value={additionalText}
-            onChange={(e) => setAdditionalText(e.target.value)}
-            placeholder={t('additionalPlaceholder', language)}
-            className="ddb-input"
-          />
-        </div>
-
-        <div className="ddb-setting-group">
-          <label htmlFor="markup-color">{t('markupColor', language)}</label>
-          <div className="ddb-color-picker">
-            <input
-              id="markup-color"
-              type="color"
-              value={markupColor}
-              onChange={(e) => setMarkupColor(e.target.value)}
-            />
-            <span className="ddb-color-value">{markupColor}</span>
-          </div>
-        </div>
-
-        <div className="ddb-setting-group">
-          <label>{t('separator', language)}</label>
-          <div className="ddb-radio-group">
-            <label className="ddb-radio">
+          {/* Settings */}
+          <div className='ddb-settings'>
+            <div className='ddb-input-group'>
+              <label>{t.additionalText}</label>
               <input
-                type="radio"
-                name="separator"
-                value="comma"
-                checked={separator === 'comma'}
-                onChange={(e) => setSeparator(e.target.value as 'comma' | 'newline')}
+                type='text'
+                value={additionalText}
+                onChange={(e) => setAdditionalText(e.target.value)}
+                placeholder='Nt: TÄHELEPANU'
               />
-              {t('separatorComma', language)}
-            </label>
-            <label className="ddb-radio">
+            </div>
+
+            <div className='ddb-input-group'>
+              <label>{t.separator}</label>
+              <select value={separator} onChange={(e) => setSeparator(e.target.value)}>
+                <option value=','>{t.separatorComma}</option>
+                <option value='newline'>{t.separatorNewline}</option>
+              </select>
+            </div>
+
+            <div className='ddb-input-group'>
+              <label>{t.markupColor}</label>
               <input
-                type="radio"
-                name="separator"
-                value="newline"
-                checked={separator === 'newline'}
-                onChange={(e) => setSeparator(e.target.value as 'comma' | 'newline')}
+                type='color'
+                value={markupColor}
+                onChange={(e) => setMarkupColor(e.target.value)}
               />
-              {t('separatorNewline', language)}
-            </label>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* Preview */}
-      <div className="ddb-preview">
-        <h4 className="ddb-section-title">{t('preview', language)}</h4>
-        <div className="ddb-preview-box" style={{ borderLeftColor: markupColor }}>
-          <pre>{previewText || t('empty', language)}</pre>
-        </div>
-      </div>
+          {/* Preview */}
+          <div className='ddb-preview'>
+            <label>{t.preview}</label>
+            <div className='ddb-preview-box'>
+              {selectedProps.length === 0 ? (
+                <em>(Tühi)</em>
+              ) : (
+                <>
+                  {selectedProps.map((p, idx) => (
+                    <div key={idx}>
+                      {p.key}: {p.value}
+                    </div>
+                  ))}
+                  {additionalText && <div>{additionalText}</div>}
+                </>
+              )}
+            </div>
+          </div>
 
-      {/* Apply Button */}
-      <button
-        className="ddb-apply-button"
-        onClick={applyMarkup}
-        disabled={loading || !previewText}
-      >
-        {loading ? t('applying', language) : t('applyButton', language)}
-      </button>
+          {/* Apply Button */}
+          <button
+            className='ddb-apply-btn'
+            onClick={applyMarkup}
+            disabled={isApplying || selectedProps.length === 0}
+          >
+            {isApplying ? t.applying : t.applyButton}
+          </button>
+
+          {/* Status */}
+          {status && (
+            <div className={`ddb-status ddb-status-${status}`}>
+              {status === 'success' ? t.success : t.error}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
