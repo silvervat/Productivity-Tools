@@ -12,11 +12,21 @@ function App() {
   const [tcApi, setTcApi] = useState<WorkspaceAPI.WorkspaceAPI>();
   const [language, setLanguage] = useState<Language>("et");
   const [selectedObjects, setSelectedObjects] = useState<ObjectProperties[]>([]);
+  const [selectionData, setSelectionData] = useState<any>(null);
 
   useEffect(() => {
     async function connectWithTcAPI() {
       const api = await WorkspaceAPI.connect(window.parent, (_event: any, _data: any) => {
-        console.log("🔌 Trimble event:", _event);
+        console.log("🔌 Event:", _event, _data);
+
+        // Kuula viewer.onSelectionChanged eventi
+        if (_event === 'viewer.onSelectionChanged' && _data?.data) {
+          console.log("✅ Selection changed! Data:", _data.data);
+          setSelectionData(_data.data);
+          
+          // Hangi propetised selle selection-i jaoks
+          handleSelectionChanged(_data.data);
+        }
       });
       setTcApi(api);
       console.log("✅ Connected to API");
@@ -24,69 +34,65 @@ function App() {
     connectWithTcAPI().catch(console.error);
   }, []);
 
-  useEffect(() => {
-    if (!tcApi) return;
+  const handleSelectionChanged = async (selectionData: any[]) => {
+    if (!tcApi || !selectionData || selectionData.length === 0) {
+      console.log("❌ No selection data");
+      setSelectedObjects([]);
+      return;
+    }
 
-    console.log("🔄 Starting viewer selection monitoring...");
+    try {
+      console.log("📍 Processing selection data:", selectionData);
 
-    const handleSelectionChange = async () => {
-      try {
-        // Kasuta viewer.getSelection() - see on õige meetod!
+      // Esimene valitud item
+      const firstItem = selectionData[0];
+      console.log("📌 First item:", firstItem);
+
+      if (firstItem.objectRuntimeIds) {
+        console.log("🔍 Object Runtime IDs:", firstItem.objectRuntimeIds);
+        console.log("🏗️ Model ID:", firstItem.modelId);
+
+        // Hangi bounding box - see kinnistab et objekt on olemas
         const viewer = (tcApi as any).viewer;
-        if (!viewer) {
-          console.log("❌ viewer pole saadaval");
-          return;
-        }
+        if (viewer) {
+          try {
+            const bboxes = await viewer.getObjectBoundingBoxes?.(
+              firstItem.modelId,
+              firstItem.objectRuntimeIds
+            );
+            console.log("📦 Bounding boxes:", bboxes);
 
-        const selection = await viewer.getSelection?.();
-        console.log("👁️ Viewer selection:", selection);
+            // Nüüd hangi properties
+            const props = await viewer.getObjectProperties?.(
+              firstItem.modelId,
+              firstItem.objectRuntimeIds
+            );
+            console.log("📊 Object properties:", props);
 
-        if (selection && selection.length > 0) {
-          const firstSelection = selection[0];
-          console.log("📍 Selected item:", firstSelection);
+            if (props && props.length > 0) {
+              const objectProps: ObjectProperties[] = props.map((p: any) => ({
+                id: p.id || firstItem.objectRuntimeIds[0],
+                name: p.name,
+                properties: p.properties || p.props || {}
+              }));
 
-          // Hangi properties selle objekti jaoks
-          if (firstSelection.objectRuntimeIds && firstSelection.modelId) {
-            try {
-              // Hangi object properties
-              const props = await viewer.getObjectProperties?.(
-                firstSelection.modelId,
-                firstSelection.objectRuntimeIds
-              );
-              console.log("📊 Object properties:", props);
-
-              if (props && props.length > 0) {
-                // Konverteeri properties ObjectProperties formaadiks
-                const objectProperties: ObjectProperties[] = props.map((p: any) => ({
-                  id: p.id,
-                  name: p.name,
-                  properties: p.properties || p.props || {}
-                }));
-                
-                setSelectedObjects(objectProperties);
-                console.log("✅ Got", objectProperties.length, "objects with properties");
-              }
-            } catch (e) {
-              console.error("❌ Error getting object properties:", e);
+              setSelectedObjects(objectProps);
+              console.log("✅ Set selected objects:", objectProps.length);
+            } else {
+              console.log("⚠️ No properties found");
+              setSelectedObjects([]);
             }
+          } catch (e) {
+            console.error("❌ Error getting properties:", e);
+            setSelectedObjects([]);
           }
-        } else {
-          console.log("⚠️ No selection");
-          setSelectedObjects([]);
         }
-      } catch (error) {
-        console.error("❌ Error in selection handler:", error);
       }
-    };
-
-    // Poll iga 500ms
-    const interval = setInterval(handleSelectionChange, 500);
-    
-    // Initial check
-    handleSelectionChange();
-
-    return () => clearInterval(interval);
-  }, [tcApi]);
+    } catch (error) {
+      console.error("❌ Error in selection handler:", error);
+      setSelectedObjects([]);
+    }
+  };
 
   return (
     <div className='app-wrapper'>
@@ -118,3 +124,5 @@ function App() {
 }
 
 export default App;
+
+
