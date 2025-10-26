@@ -63,7 +63,7 @@ export default function DragDropMarkupBuilder({
   const [isApplying, setIsApplying] = useState(false);
   const [status, setStatus] = useState('');
 
-  // Ekstraheerivad propetised valitud objektidest
+  // Extract properties from selected objects
   useEffect(() => {
     if (selectedObjects.length === 0) {
       setAvailableProps([]);
@@ -74,7 +74,7 @@ export default function DragDropMarkupBuilder({
     const seenKeys = new Set<string>();
 
     selectedObjects.forEach((obj) => {
-      // Tekla .trb failide propertySet array
+      // Tekla .trb files - array structure
       if (obj.properties && Array.isArray(obj.properties)) {
         obj.properties.forEach((propSet: any) => {
           const setName = propSet.name || 'Unknown';
@@ -90,7 +90,7 @@ export default function DragDropMarkupBuilder({
           }
         });
       }
-      // IFC/DWG failide flat struktuuri
+      // IFC/DWG files - flat structure
       else if (typeof obj.properties === 'object' && obj.properties !== null) {
         Object.entries(obj.properties).forEach(([key, value]: [string, any]) => {
           if (!seenKeys.has(key)) {
@@ -104,17 +104,19 @@ export default function DragDropMarkupBuilder({
     setAvailableProps(props);
   }, [selectedObjects]);
 
-  // Lohistamise handling
+  // Drag start handler
   const handleDragStart = (e: React.DragEvent, prop: Property) => {
     e.dataTransfer.effectAllowed = 'copy';
     e.dataTransfer.setData('property', JSON.stringify(prop));
   };
 
+  // Drag over handler
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   };
 
+  // Drop handler
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const prop = JSON.parse(e.dataTransfer.getData('property'));
@@ -123,7 +125,7 @@ export default function DragDropMarkupBuilder({
     }
   };
 
-  // Markupi rakendamine
+  // Apply markup
   const applyMarkup = async () => {
     if (selectedObjects.length === 0) {
       setStatus('error');
@@ -135,22 +137,15 @@ export default function DragDropMarkupBuilder({
     setStatus('');
 
     try {
-      // Hangi valitud objektid otse API-lt
+      // Get selection from viewer
       let selection: any = null;
       
-      // Proovi erinevaid meetodeid
       if ((api as any).viewer && (api as any).viewer.getSelection) {
         selection = await (api as any).viewer.getSelection();
-      } else if ((api as any).getSelectedObjectIds) {
-        const selectedIds = await (api as any).getSelectedObjectIds();
-        if (selectedIds && selectedIds.length > 0) {
-          selection = [{ objectRuntimeIds: selectedIds }];
-        }
       }
 
       if (!selection || selection.length === 0) {
-        console.warn("No selection found - using selectedObjects from props");
-        // Kasuta propst saadud objektid
+        console.warn("No selection - using selectedObjects");
         if (selectedObjects.length === 0) {
           setStatus('error');
           setIsApplying(false);
@@ -161,21 +156,21 @@ export default function DragDropMarkupBuilder({
 
       const firstSelection = selection?.[0];
       
-      // Koosta markup tekst
+      // Build markup text
       let markupText = selectedProps.map(p => `${p.key}: ${p.value}`).join(separator === 'newline' ? '\n' : ', ');
       
       if (additionalText) {
         markupText += (separator === 'newline' ? '\n' : ', ') + additionalText;
       }
 
-      // Hangi bounding boxid
+      // Get bounding boxes
       if (firstSelection && firstSelection.objectRuntimeIds && firstSelection.modelId) {
         const bBoxes = await (api as any).viewer.getObjectBoundingBoxes(
           firstSelection.modelId,
           firstSelection.objectRuntimeIds
         );
 
-        // Loo tekstmarkup igale objektile
+        // Create text markups for each object
         const markups: TextMarkup[] = [];
         for (const bbox of bBoxes) {
           const midPoint = {
@@ -197,15 +192,10 @@ export default function DragDropMarkupBuilder({
           });
         }
 
-        // Lisa markupit
+        // Add markup
         if ((api as any).markup && (api as any).markup.addTextMarkup) {
           await (api as any).markup.addTextMarkup(markups);
-        } else {
-          console.error("Markup API not available");
-          throw new Error("Markup API not available");
         }
-      } else {
-        console.warn("No model selection available, using fallback");
       }
       
       setStatus('success');
