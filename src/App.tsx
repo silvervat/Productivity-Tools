@@ -16,83 +16,70 @@ function App() {
   useEffect(() => {
     async function connectWithTcAPI() {
       const api = await WorkspaceAPI.connect(window.parent, (_event: any, _data: any) => {
-        console.log("Event:", _event, _data);
+        console.log("🔌 Event from Trimble Connect:", _event, _data);
+        
+        // Kui event on selection muutus
+        if (_event === 'selectionChanged') {
+          console.log("📍 Selection changed event!");
+          handleSelectionChange();
+        }
       });
       setTcApi(api);
-      console.log("Connected to Trimble Connect API");
+      console.log("✅ Connected to Trimble Connect API");
     }
     connectWithTcAPI().catch(console.error);
   }, []);
 
+  const handleSelectionChange = async () => {
+    if (!tcApi) {
+      console.log("❌ tcApi pole saadaval");
+      return;
+    }
+
+    try {
+      console.log("🔄 Fetching selected objects...");
+      
+      // Kasuta optional chaining
+      const selector = { output: { loadProperties: true } };
+      const result = await (tcApi as any).getSelectedObjects?.(selector);
+      
+      if (result && result.length > 0) {
+        setSelectedObjects(result);
+        console.log("✅ Got", result.length, "selected objects");
+        console.log("📊 First object:", result[0]);
+      } else {
+        console.log("⚠️ No objects in result");
+        setSelectedObjects([]);
+      }
+    } catch (error) {
+      console.error("❌ Error getting selected objects:", error);
+      
+      // Proovi alternative meetod
+      try {
+        console.log("🔄 Trying alternative method...");
+        const viewer = (tcApi as any).viewer;
+        if (viewer && viewer.getSelection) {
+          const selection = await viewer.getSelection();
+          console.log("📍 Viewer selection:", selection);
+        }
+      } catch (e) {
+        console.error("❌ Alternative method also failed:", e);
+      }
+      
+      setSelectedObjects([]);
+    }
+  };
+
+  // Poll selection iga 500ms
   useEffect(() => {
     if (!tcApi) return;
 
-    console.log("Setting up selection listener");
+    console.log("✅ Setting up selection polling");
+    const interval = setInterval(() => {
+      handleSelectionChange();
+    }, 500);
 
-    const handleSelectionChange = async () => {
-      try {
-        console.log("Selection changed");
-        
-        let objects: ObjectProperties[] = [];
-
-        try {
-          const selector = { output: { loadProperties: true } };
-          const result = await (tcApi as any).getSelectedObjects?.(selector);
-          if (result && result.length > 0) {
-            objects = result;
-            console.log("Got objects via getSelectedObjects");
-          }
-        } catch (e1) {
-          console.log("getSelectedObjects not available");
-        }
-
-        if (objects.length > 0) {
-          setSelectedObjects(objects);
-          console.log("Selected objects count:", objects.length);
-        } else {
-          setSelectedObjects([]);
-        }
-      } catch (error) {
-        console.error("Error in selection handler:", error);
-        setSelectedObjects([]);
-      }
-    };
-
-    let removeListener: (() => void) | null = null;
-
-    if ((tcApi as any).on) {
-      console.log("Using .on() method");
-      (tcApi as any).on("selectionChanged", handleSelectionChange);
-      removeListener = () => {
-        try {
-          if ((tcApi as any).off) {
-            (tcApi as any).off("selectionChanged", handleSelectionChange);
-          }
-        } catch (e) {
-          console.error("Error removing listener:", e);
-        }
-      };
-    } else if ((tcApi as any).addEventListener) {
-      console.log("Using .addEventListener() method");
-      (tcApi as any).addEventListener("selectionChanged", handleSelectionChange);
-      removeListener = () => {
-        try {
-          if ((tcApi as any).removeEventListener) {
-            (tcApi as any).removeEventListener("selectionChanged", handleSelectionChange);
-          }
-        } catch (e) {
-          console.error("Error removing listener:", e);
-        }
-      };
-    }
-
-    handleSelectionChange();
-
-    return () => {
-      if (removeListener) {
-        removeListener();
-      }
-    };
+    return () => clearInterval(interval);
   }, [tcApi]);
 
   return (
