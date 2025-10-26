@@ -12,9 +12,7 @@ export default function App() {
         const w = (window as any);
         const getApi = w?.tc?.api?.getWorkspaceAPI;
         if (typeof getApi !== "function") {
-          setErr(
-            "Trimble Connect Workspace API puudub (window.tc.api.getWorkspaceAPI). Ava see TC kontekstis."
-          );
+          setErr("Trimble Connect Workspace API puudub (window.tc.api.getWorkspaceAPI). Ava see TC kontekstis.");
           return;
         }
         const _api = await getApi();
