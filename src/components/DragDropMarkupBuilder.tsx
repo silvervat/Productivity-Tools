@@ -21,6 +21,10 @@ const translations = {
     selected: 'Valitud omadused',
     preview: '👁️ Eelvaade:',
     additionalText: 'Täiendav tekst:',
+    markupColor: 'Markupi värv:',
+    separator: 'Eraldaja:',
+    separatorComma: 'Koma',
+    separatorNewline: 'Uus rida',
     applyButton: 'LISA MARKEERING',
     applying: 'Lisatakse...',
     success: '✓ Markup lisatud',
@@ -33,6 +37,10 @@ const translations = {
     selected: 'Selected properties',
     preview: '👁️ Preview:',
     additionalText: 'Additional text:',
+    markupColor: 'Markup color:',
+    separator: 'Separator:',
+    separatorComma: 'Comma',
+    separatorNewline: 'New line',
     applyButton: 'ADD MARKUP',
     applying: 'Adding...',
     success: '✓ Markup added',
@@ -50,10 +58,12 @@ export default function DragDropMarkupBuilder({
   const [availableProps, setAvailableProps] = useState<Property[]>([]);
   const [selectedProps, setSelectedProps] = useState<Property[]>([]);
   const [additionalText, setAdditionalText] = useState('');
+  const [separator, setSeparator] = useState(',');
+  const [markupColor, setMarkupColor] = useState('#FF0000');
   const [isApplying, setIsApplying] = useState(false);
   const [status, setStatus] = useState('');
 
-  // Extract properties from selected objects
+  // Ekstraheerivad propetised valitud objektidest
   useEffect(() => {
     if (selectedObjects.length === 0) {
       setAvailableProps([]);
@@ -64,7 +74,7 @@ export default function DragDropMarkupBuilder({
     const seenKeys = new Set<string>();
 
     selectedObjects.forEach((obj) => {
-      // Tekla .trb files - array structure
+      // Tekla .trb failide propertySet array
       if (obj.properties && Array.isArray(obj.properties)) {
         obj.properties.forEach((propSet: any) => {
           const setName = propSet.name || 'Unknown';
@@ -80,7 +90,7 @@ export default function DragDropMarkupBuilder({
           }
         });
       }
-      // IFC/DWG files - flat structure
+      // IFC/DWG failide flat struktuuri
       else if (typeof obj.properties === 'object' && obj.properties !== null) {
         Object.entries(obj.properties).forEach(([key, value]: [string, any]) => {
           if (!seenKeys.has(key)) {
@@ -94,19 +104,17 @@ export default function DragDropMarkupBuilder({
     setAvailableProps(props);
   }, [selectedObjects]);
 
-  // Drag start handler
+  // Lohistamise handling
   const handleDragStart = (e: React.DragEvent, prop: Property) => {
     e.dataTransfer.effectAllowed = 'copy';
     e.dataTransfer.setData('property', JSON.stringify(prop));
   };
 
-  // Drag over handler
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   };
 
-  // Drop handler
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const prop = JSON.parse(e.dataTransfer.getData('property'));
@@ -115,9 +123,9 @@ export default function DragDropMarkupBuilder({
     }
   };
 
-  // Apply markup
+  // Markupi rakendamine
   const applyMarkup = async () => {
-    if (selectedObjects.length === 0 || selectedProps.length === 0) {
+    if (selectedObjects.length === 0) {
       setStatus('error');
       setTimeout(() => setStatus(''), 2000);
       return;
@@ -127,70 +135,77 @@ export default function DragDropMarkupBuilder({
     setStatus('');
 
     try {
-      // Get selection from viewer
+      // Hangi valitud objektid otse API-lt
       let selection: any = null;
       
+      // Proovi erinevaid meetodeid
       if ((api as any).viewer && (api as any).viewer.getSelection) {
         selection = await (api as any).viewer.getSelection();
+      } else if ((api as any).getSelectedObjectIds) {
+        const selectedIds = await (api as any).getSelectedObjectIds();
+        if (selectedIds && selectedIds.length > 0) {
+          selection = [{ objectRuntimeIds: selectedIds }];
+        }
       }
 
       if (!selection || selection.length === 0) {
-        console.warn("No selection available");
-        setStatus('error');
-        setIsApplying(false);
-        setTimeout(() => setStatus(''), 2000);
-        return;
+        console.warn("No selection found - using selectedObjects from props");
+        // Kasuta propst saadud objektid
+        if (selectedObjects.length === 0) {
+          setStatus('error');
+          setIsApplying(false);
+          setTimeout(() => setStatus(''), 2000);
+          return;
+        }
       }
 
-      const firstSelection = selection[0];
-      if (!firstSelection.objectRuntimeIds) {
-        setStatus('error');
-        setIsApplying(false);
-        setTimeout(() => setStatus(''), 2000);
-        return;
-      }
+      const firstSelection = selection?.[0];
       
-      // Build markup text
-      let markupText = selectedProps.map(p => `${p.key}: ${p.value}`).join(', ');
+      // Koosta markup tekst
+      let markupText = selectedProps.map(p => `${p.key}: ${p.value}`).join(separator === 'newline' ? '\n' : ', ');
       
       if (additionalText) {
-        markupText += ', ' + additionalText;
+        markupText += (separator === 'newline' ? '\n' : ', ') + additionalText;
       }
 
-      // Get bounding boxes
-      const bBoxes = await (api as any).viewer.getObjectBoundingBoxes(
-        firstSelection.modelId,
-        firstSelection.objectRuntimeIds
-      );
+      // Hangi bounding boxid
+      if (firstSelection && firstSelection.objectRuntimeIds && firstSelection.modelId) {
+        const bBoxes = await (api as any).viewer.getObjectBoundingBoxes(
+          firstSelection.modelId,
+          firstSelection.objectRuntimeIds
+        );
 
-      // Create text markups for each object
-      const markups: TextMarkup[] = [];
-      for (const bbox of bBoxes) {
-        const midPoint = {
-          x: (bbox.boundingBox.min.x + bbox.boundingBox.max.x) / 2.0,
-          y: (bbox.boundingBox.min.y + bbox.boundingBox.max.y) / 2.0,
-          z: (bbox.boundingBox.min.z + bbox.boundingBox.max.z) / 2.0,
-        };
+        // Loo tekstmarkup igale objektile
+        const markups: TextMarkup[] = [];
+        for (const bbox of bBoxes) {
+          const midPoint = {
+            x: (bbox.boundingBox.min.x + bbox.boundingBox.max.x) / 2.0,
+            y: (bbox.boundingBox.min.y + bbox.boundingBox.max.y) / 2.0,
+            z: (bbox.boundingBox.min.z + bbox.boundingBox.max.z) / 2.0,
+          };
 
-        const point: MarkupPick = {
-          positionX: midPoint.x * 1000,
-          positionY: midPoint.y * 1000,
-          positionZ: midPoint.z * 1000,
-        };
+          const point: MarkupPick = {
+            positionX: midPoint.x * 1000,
+            positionY: midPoint.y * 1000,
+            positionZ: midPoint.z * 1000,
+          };
 
-        markups.push({
-          text: markupText,
-          start: point,
-          end: point,
-        });
-      }
+          markups.push({
+            text: markupText,
+            start: point,
+            end: point,
+          });
+        }
 
-      // Add markup
-      if ((api as any).markup && (api as any).markup.addTextMarkup) {
-        await (api as any).markup.addTextMarkup(markups);
-        console.log("Markup added successfully");
+        // Lisa markupit
+        if ((api as any).markup && (api as any).markup.addTextMarkup) {
+          await (api as any).markup.addTextMarkup(markups);
+        } else {
+          console.error("Markup API not available");
+          throw new Error("Markup API not available");
+        }
       } else {
-        throw new Error("Markup API not available");
+        console.warn("No model selection available, using fallback");
       }
       
       setStatus('success');
@@ -275,6 +290,23 @@ export default function DragDropMarkupBuilder({
                 value={additionalText}
                 onChange={(e) => setAdditionalText(e.target.value)}
                 placeholder='Nt: TÄHELEPANU'
+              />
+            </div>
+
+            <div className='ddb-input-group'>
+              <label>{t.separator}</label>
+              <select value={separator} onChange={(e) => setSeparator(e.target.value)}>
+                <option value=','>{t.separatorComma}</option>
+                <option value='newline'>{t.separatorNewline}</option>
+              </select>
+            </div>
+
+            <div className='ddb-input-group'>
+              <label>{t.markupColor}</label>
+              <input
+                type='color'
+                value={markupColor}
+                onChange={(e) => setMarkupColor(e.target.value)}
               />
             </div>
           </div>
