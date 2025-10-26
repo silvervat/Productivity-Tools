@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { WorkspaceAPI } from "trimble-connect-workspace-api";
+import type { WorkspaceAPI } from "trimble-connect-workspace-api";
 import DragDropMarkupBuilder from "./components/DragDropMarkupBuilder";
 
 export default function App() {
@@ -12,7 +12,9 @@ export default function App() {
         const w = (window as any);
         const getApi = w?.tc?.api?.getWorkspaceAPI;
         if (typeof getApi !== "function") {
-          setErr("Trimble Connect Workspace API puudub (window.tc.api.getWorkspaceAPI ei ole kättesaadav). Ava see TC kontekstis.");
+          setErr(
+            "Trimble Connect Workspace API puudub (window.tc.api.getWorkspaceAPI). Ava see TC kontekstis."
+          );
           return;
         }
         const _api = await getApi();
@@ -27,7 +29,8 @@ export default function App() {
   if (!api) return <div style={{ padding: 16 }}>Laen TC API…</div>;
 
   return (
-    <div style={{ padding: 12 }}>
+    <div style={{ padding: 12, maxWidth: 1000, margin: "0 auto" }}>
+      <h2 style={{ marginTop: 0 }}>Drag & Drop Markup Builder</h2>
       <DragDropMarkupBuilder api={api} />
     </div>
   );
